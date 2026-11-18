@@ -1,70 +1,129 @@
 import { useEffect, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { CheckCircle2, ChevronRight, Circle } from 'lucide-react'
 import { Shell } from '../components/Shell'
 import { Card, Spinner } from '../components/ui'
 import { api, formatDate, ROLE_LABELS } from '../lib/api'
+import { callPath } from '../lib/school'
 import { useSession } from '../lib/session'
 
-interface MyClass {
+interface DaySlot {
   id: string
   name: string
-  levels: string[]
-  studentCount: number
+  halfDay: 'am' | 'pm'
+  dueTime: string | null
+  validatedAt: string | null
+}
+interface Day {
+  today: string
+  closure: string | null
+  classes: { id: string; name: string; slots: DaySlot[] }[]
 }
 
-/** Espace enseignant : ses classes. L'écran d'appel arrive avec le lot 3. */
+const AUTO_OPEN_KEY = 'appely:auto-opened'
+
+/**
+ * Accueil enseignant : les appels du jour. S'il n'y a qu'un seul appel à faire, il s'ouvre
+ * directement (une fois par jour et par session), pour un appel en quelques secondes.
+ */
 export default function Teacher() {
   const { me } = useSession()
-  const [classes, setClasses] = useState<Record<string, MyClass[]>>({})
+  const navigate = useNavigate()
+  const [days, setDays] = useState<Record<string, Day | null>>({})
   const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
     if (!me) return
     Promise.all(
       me.memberships.map((m) =>
-        api<{ classes: MyClass[] }>(`/api/schools/${m.schoolId}/my-classes`).then(
-          (r) => [m.schoolId, r.classes] as const,
-          () => [m.schoolId, []] as const,
+        api<Day>(`/api/schools/${m.schoolId}/my-day`).then(
+          (d) => [m.schoolId, d] as const,
+          () => [m.schoolId, null] as const,
         ),
       ),
     ).then((entries) => {
-      setClasses(Object.fromEntries(entries))
+      const map = Object.fromEntries(entries)
+      setDays(map)
       setLoaded(true)
+      const pending = entries.flatMap(([sid, d]) =>
+        (d?.classes ?? []).flatMap((c) => c.slots.filter((s) => !s.validatedAt).map((s) => callPath(sid, c.id, d!.today, s.id))),
+      )
+      try {
+        const today = entries.find(([, d]) => d)?.[1]?.today
+        if (pending.length === 1 && today && sessionStorage.getItem(AUTO_OPEN_KEY) !== today) {
+          sessionStorage.setItem(AUTO_OPEN_KEY, today)
+          navigate(pending[0])
+        }
+      } catch {
+        /* stockage indisponible : pas d'ouverture automatique */
+      }
     })
-  }, [me])
+  }, [me, navigate])
 
   return (
     <Shell title={`Bonjour ${me?.user.displayName ?? ''}`}>
       {!loaded ? (
         <Spinner />
       ) : (
-        <div className="grid gap-4">
-          {me?.memberships.map((m) => (
-            <section key={m.schoolId}>
-              <h2 className="mb-2 text-sm font-semibold tracking-wide text-muted uppercase">
-                {m.schoolName} · {ROLE_LABELS[m.role]}
-                {m.activeTo && ` jusqu’au ${formatDate(m.activeTo)}`}
-              </h2>
-              {(classes[m.schoolId] ?? []).length === 0 ? (
-                <Card className="text-sm text-muted">
-                  Aucune classe ne vous est encore affectée. La direction peut vous affecter une classe depuis sa page.
-                </Card>
-              ) : (
-                <ul className="grid gap-2 sm:grid-cols-2">
-                  {classes[m.schoolId].map((c) => (
-                    <li key={c.id}>
-                      <Card>
-                        <p className="font-semibold">{c.name}</p>
-                        <p className="text-sm text-muted">
-                          {c.studentCount} élève{c.studentCount > 1 ? 's' : ''} · l’écran d’appel arrive à la prochaine
-                          étape du développement
-                        </p>
-                      </Card>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          ))}
+        <div className="grid gap-5">
+          {me?.memberships.map((m) => {
+            const d = days[m.schoolId]
+            return (
+              <section key={m.schoolId}>
+                <h2 className="mb-2 text-sm font-semibold tracking-wide text-muted uppercase">
+                  {m.schoolName} · {ROLE_LABELS[m.role]}
+                  {m.activeTo && ` jusqu’au ${formatDate(m.activeTo)}`}
+                </h2>
+                {!d || d.classes.length === 0 ? (
+                  <Card className="text-sm text-muted">
+                    Aucune classe ne vous est encore affectée. La direction peut vous affecter une classe depuis sa page.
+                  </Card>
+                ) : d.closure ? (
+                  <Card className="text-sm text-muted">Pas d’appel aujourd’hui : {d.closure}.</Card>
+                ) : (
+                  <ul className="grid gap-2 sm:grid-cols-2">
+                    {d.classes.flatMap((c) =>
+                      c.slots.length === 0
+                        ? [
+                            <li key={c.id}>
+                              <Card className="text-sm text-muted">
+                                <span className="font-semibold text-ink">{c.name}</span> · pas d’appel prévu aujourd’hui
+                              </Card>
+                            </li>,
+                          ]
+                        : c.slots.map((s) => (
+                            <li key={`${c.id}-${s.id}`}>
+                              <Link
+                                to={callPath(m.schoolId, c.id, d.today, s.id)}
+                                className={`flex min-h-16 items-center gap-3 rounded-[var(--radius-card)] p-4 shadow-[var(--shadow-card)] ring-1 ${
+                                  s.validatedAt ? 'bg-white ring-transparent' : 'bg-primary text-white ring-primary'
+                                }`}
+                              >
+                                {s.validatedAt ? (
+                                  <CheckCircle2 className="size-6 shrink-0 text-success" aria-hidden />
+                                ) : (
+                                  <Circle className="size-6 shrink-0 text-white/70" aria-hidden />
+                                )}
+                                <span className="min-w-0 flex-1">
+                                  <span className="block font-semibold">
+                                    {c.name} · {s.name}
+                                  </span>
+                                  <span className={`block text-sm ${s.validatedAt ? 'text-muted' : 'text-white/85'}`}>
+                                    {s.validatedAt
+                                      ? `Validé à ${new Date(s.validatedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`
+                                      : `À faire${s.dueTime ? ` avant ${Number(s.dueTime.slice(0, 2))} h ${s.dueTime.slice(3)}` : ''}`}
+                                  </span>
+                                </span>
+                                <ChevronRight className="size-5 shrink-0" aria-hidden />
+                              </Link>
+                            </li>
+                          )),
+                    )}
+                  </ul>
+                )}
+              </section>
+            )
+          })}
         </div>
       )}
     </Shell>

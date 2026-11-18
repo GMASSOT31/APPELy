@@ -1,0 +1,354 @@
+import { audit, nowIso, requireSchoolRole, requireUser, type CurrentUser, type Env } from '../lib/auth'
+import { newId } from '../lib/crypto'
+import { badRequest, conflict, forbidden, HttpError, json, notFound, readJson } from '../lib/http'
+import { ensureDefaultStatuses } from './settings'
+import { closureFor, isExpected, isoWeekday, isValidDate, type HalfDay } from '../../src/domain/schedule'
+
+export const REMARK_MAX = 200
+
+/** Date du jour dans le fuseau de l'école (Europe/Paris par défaut). */
+export function schoolToday(timezone = 'Europe/Paris', now = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now)
+}
+
+interface Slot {
+  id: string
+  class_id: string
+  name: string
+  half_day: HalfDay
+  weekdays: number
+  due_time: string | null
+  archived_at: string | null
+}
+
+/**
+ * Accès à l'appel d'une classe : la direction de l'école, ou une personne affectée à la classe
+ * (enseignant, remplaçant) avec un rattachement actif. Renvoie aussi le rôle.
+ */
+async function requireCallAccess(env: Env, u: CurrentUser, schoolId: string, classId: string) {
+  const m = await requireSchoolRole(env, u, schoolId, ['direction', 'enseignant', 'remplacant'])
+  const cls = await env.DB.prepare('SELECT id, name, archived_at FROM classes WHERE id = ? AND school_id = ?')
+    .bind(classId, schoolId)
+    .first<{ id: string; name: string; archived_at: string | null }>()
+  if (!cls) throw notFound()
+  if (m.role !== 'direction') {
+    const now = nowIso()
+    const a = await env.DB.prepare(
+      'SELECT 1 FROM teacher_class_assignments WHERE class_id = ? AND membership_id = ? AND start_at <= ? AND (end_at IS NULL OR end_at > ?)',
+    )
+      .bind(classId, m.id, now, now)
+      .first()
+    if (!a) throw forbidden()
+  }
+  return { membership: m, cls }
+}
+
+interface StudentRow {
+  id: string
+  first_name: string
+  last_name: string | null
+  class_id: string
+  active_from: string
+  active_to: string | null
+}
+
+/** Tout ce qu'il faut pour afficher ou valider un appel : élèves attendus, états, appel existant. */
+async function loadCall(env: Env, schoolId: string, classId: string, date: string, slotId: string) {
+  await ensureDefaultStatuses(env, schoolId)
+  const [schoolR, slotR, closuresR, studentsR, schedulesR, statusesR, callR] = await env.DB.batch([
+    env.DB.prepare('SELECT closed_weekdays, timezone FROM schools WHERE id = ?').bind(schoolId),
+    env.DB.prepare('SELECT id, class_id, name, half_day, weekdays, due_time, archived_at FROM call_slots WHERE id = ? AND class_id = ? AND school_id = ?').bind(
+      slotId,
+      classId,
+      schoolId,
+    ),
+    env.DB.prepare('SELECT start_date, end_date, label FROM school_closures WHERE school_id = ? AND start_date <= ? AND end_date >= ?').bind(
+      schoolId,
+      date,
+      date,
+    ),
+    env.DB.prepare('SELECT id, first_name, last_name, class_id, active_from, active_to FROM students WHERE class_id = ?').bind(classId),
+    env.DB.prepare(
+      'SELECT ss.student_id, ss.valid_from, ss.pattern FROM student_schedules ss JOIN students s ON s.id = ss.student_id WHERE s.class_id = ?',
+    ).bind(classId),
+    env.DB.prepare(
+      'SELECT id, label, color, category, position, archived_at FROM attendance_statuses WHERE school_id = ? ORDER BY position',
+    ).bind(schoolId),
+    env.DB.prepare('SELECT * FROM attendance_calls WHERE class_id = ? AND slot_id = ? AND slot_date = ?').bind(classId, slotId, date),
+  ])
+  const school = schoolR.results[0] as { closed_weekdays: number; timezone: string }
+  const slot = slotR.results[0] as Slot | undefined
+  if (!slot) throw notFound()
+  const call = callR.results[0] as
+    | {
+        id: string
+        version: number
+        status: string
+        remark: string | null
+        first_validated_by: string
+        first_validated_at: string
+        updated_by: string
+        updated_at: string
+        last_request_id: string
+      }
+    | undefined
+
+  const schedules = schedulesR.results as { student_id: string; valid_from: string; pattern: number | null }[]
+  const half = slot.half_day
+  const expected = (studentsR.results as StudentRow[]).filter((s) =>
+    isExpected({ ...s, schedules: schedules.filter((x) => x.student_id === s.id) }, date, half),
+  )
+
+  let entries: Record<string, string> = {}
+  let students: { id: string; first_name: string; last_name: string | null }[] = expected
+  if (call) {
+    // Appel déjà validé : on garde exactement la liste enregistrée (contexte conservé même si
+    // un élève a changé de classe ou d'emploi du temps depuis).
+    const { results } = await env.DB.prepare(
+      `SELECT e.student_id, e.status_id, s.first_name, s.last_name FROM attendance_entries e JOIN students s ON s.id = e.student_id
+        WHERE e.call_id = ?`,
+    )
+      .bind(call.id)
+      .all<{ student_id: string; status_id: string; first_name: string; last_name: string | null }>()
+    entries = Object.fromEntries(results.map((r) => [r.student_id, r.status_id]))
+    students = results.map((r) => ({ id: r.student_id, first_name: r.first_name, last_name: r.last_name }))
+  }
+  // Ordre stable et reconnaissable : prénom puis nom.
+  students = [...students].sort(
+    (a, b) => a.first_name.localeCompare(b.first_name, 'fr', { sensitivity: 'base' }) || (a.last_name ?? '').localeCompare(b.last_name ?? '', 'fr'),
+  )
+
+  const weekdayOk = (slot.weekdays & (1 << (isoWeekday(date) - 1))) !== 0
+  const closure = closureFor(date, school.closed_weekdays, closuresR.results as { start_date: string; end_date: string; label: string }[])
+  const noCallReason = call ? null : slot.archived_at ? 'Cet appel a été supprimé.' : closure ?? (weekdayOk ? null : 'Pas d’appel prévu ce jour-là.')
+
+  return {
+    school,
+    slot,
+    call,
+    entries,
+    students,
+    statuses: statusesR.results as { id: string; label: string; color: string; category: string; position: number; archived_at: string | null }[],
+    noCallReason,
+  }
+}
+
+async function names(env: Env, ids: string[]) {
+  if (!ids.length) return {}
+  const { results } = await env.DB.prepare('SELECT id, display_name FROM users WHERE id IN (SELECT value FROM json_each(?))')
+    .bind(JSON.stringify([...new Set(ids)]))
+    .all<{ id: string; display_name: string }>()
+  return Object.fromEntries(results.map((r) => [r.id, r.display_name]))
+}
+
+function checkDate(date: string, today: string) {
+  if (!isValidDate(date)) throw badRequest('INVALID_DATE', 'Date invalide.')
+  if (date > today) throw badRequest('FUTURE_DATE', 'Impossible de faire l’appel d’un jour à venir.')
+}
+
+export async function getCall(env: Env, req: Request, schoolId: string, classId: string, date: string, slotId: string) {
+  const u = await requireUser(env, req)
+  const { cls } = await requireCallAccess(env, u, schoolId, classId)
+  const d = await loadCall(env, schoolId, classId, date, slotId)
+  checkDate(date, schoolToday(d.school.timezone))
+  let revisions: unknown[] = []
+  let people: Record<string, string> = {}
+  if (d.call) {
+    const { results } = await env.DB.prepare(
+      'SELECT version, actor_user_id, at, reason, changes FROM attendance_revisions WHERE call_id = ? ORDER BY version DESC',
+    )
+      .bind(d.call.id)
+      .all<{ version: number; actor_user_id: string; at: string; reason: string | null; changes: string | null }>()
+    people = await names(env, results.map((r) => r.actor_user_id))
+    revisions = results.map((r) => ({
+      version: r.version,
+      by: people[r.actor_user_id] ?? '—',
+      at: r.at,
+      reason: r.reason,
+      changes: r.changes ? JSON.parse(r.changes) : null,
+    }))
+  }
+  const usedStatus = new Set(Object.values(d.entries))
+  return json({
+    class: { id: cls.id, name: cls.name },
+    slot: { id: d.slot.id, name: d.slot.name, halfDay: d.slot.half_day, dueTime: d.slot.due_time },
+    date,
+    noCallReason: d.noCallReason,
+    // États actifs, plus ceux archivés encore utilisés dans cet appel (historique lisible).
+    statuses: d.statuses
+      .filter((s) => !s.archived_at || usedStatus.has(s.id))
+      .map((s) => ({ id: s.id, label: s.label, color: s.color, category: s.category, active: !s.archived_at })),
+    students: d.students.map((s) => ({ id: s.id, firstName: s.first_name, lastName: s.last_name })),
+    call: d.call
+      ? {
+          version: d.call.version,
+          status: d.call.status,
+          remark: d.call.remark,
+          entries: d.entries,
+          validatedAt: d.call.first_validated_at,
+          updatedAt: d.call.updated_at,
+          updatedBy: people[d.call.updated_by] ?? (await names(env, [d.call.updated_by]))[d.call.updated_by],
+          revisions,
+        }
+      : null,
+  })
+}
+
+/**
+ * Validation ou correction d'un appel, de façon atomique et idempotente :
+ * - baseVersion : version sur laquelle l'utilisateur a travaillé (0 = nouvel appel) ;
+ * - requestId : identifiant unique de la tentative ; un renvoi (double tap, réseau) ne crée rien de plus ;
+ * - une correction concurrente est refusée (409) au lieu d'écraser silencieusement.
+ */
+export async function validateCall(env: Env, req: Request, schoolId: string, classId: string, date: string, slotId: string) {
+  const u = await requireUser(env, req)
+  await requireCallAccess(env, u, schoolId, classId)
+  const body = await readJson<{ baseVersion?: unknown; requestId?: unknown; entries?: unknown; remark?: unknown; reason?: unknown }>(req)
+  const requestId = typeof body.requestId === 'string' && /^[A-Za-z0-9-]{8,64}$/.test(body.requestId) ? body.requestId : null
+  if (!requestId) throw badRequest('INVALID_REQUEST', 'Requête invalide.')
+  const baseVersion = typeof body.baseVersion === 'number' && Number.isInteger(body.baseVersion) ? body.baseVersion : -1
+  if (baseVersion < 0) throw badRequest('INVALID_REQUEST', 'Requête invalide.')
+  if (typeof body.entries !== 'object' || !body.entries) throw badRequest('INVALID_ENTRIES', 'Appel incomplet.')
+  const submitted = body.entries as Record<string, unknown>
+  const remark = typeof body.remark === 'string' ? body.remark.trim().slice(0, REMARK_MAX) || null : null
+  const reason = typeof body.reason === 'string' ? body.reason.trim().slice(0, REMARK_MAX) || null : null
+
+  const d = await loadCall(env, schoolId, classId, date, slotId)
+  checkDate(date, schoolToday(d.school.timezone))
+
+  // Renvoi d'une tentative déjà enregistrée : on répond simplement « c'est fait ».
+  if (d.call && d.call.last_request_id === requestId) return json({ ok: true, version: d.call.version, replay: true })
+  if (d.noCallReason) throw conflict('NO_CALL', d.noCallReason)
+  if (d.students.length === 0) throw conflict('NO_STUDENTS', 'Aucun élève attendu : il n’y a rien à valider.')
+  const currentVersion = d.call?.version ?? 0
+  if (baseVersion !== currentVersion)
+    throw conflict('STALE_CALL', 'Cet appel vient d’être modifié par quelqu’un d’autre. La page va se mettre à jour.')
+
+  // Chaque élève attendu a exactement un état actif ; aucun élève en trop.
+  const active = new Set(d.statuses.filter((s) => !s.archived_at).map((s) => s.id))
+  const allowedStudents = new Set(d.students.map((s) => s.id))
+  if (Object.keys(submitted).some((id) => !allowedStudents.has(id)))
+    throw conflict('STUDENTS_CHANGED', 'La liste des élèves a changé. La page va se mettre à jour.')
+  const entries: Record<string, string> = {}
+  for (const s of d.students) {
+    const st = submitted[s.id]
+    if (typeof st !== 'string') throw conflict('STUDENTS_CHANGED', 'La liste des élèves a changé. La page va se mettre à jour.')
+    // Un état archivé reste acceptable s'il était déjà celui de l'élève (pas de modification).
+    if (!active.has(st) && d.entries[s.id] !== st) throw badRequest('INVALID_STATUS', 'État d’appel invalide.')
+    entries[s.id] = st
+  }
+
+  const changes = d.call
+    ? Object.entries(entries)
+        .filter(([sid, st]) => d.entries[sid] !== st)
+        .map(([sid, st]) => ({ studentId: sid, from: d.entries[sid], to: st }))
+    : null
+  if (d.call && changes!.length === 0 && remark === d.call.remark)
+    return json({ ok: true, version: d.call.version, unchanged: true })
+
+  const now = nowIso()
+  const callId = d.call?.id ?? newId()
+  const version = currentVersion + 1
+  const guard = 'SELECT 1 FROM attendance_calls WHERE id = ? AND last_request_id = ? AND version = ?'
+  const stmts: D1PreparedStatement[] = []
+  if (!d.call) {
+    stmts.push(
+      env.DB.prepare(
+        `INSERT INTO attendance_calls (id, school_id, class_id, slot_id, slot_date, status, version, remark,
+            first_validated_by, first_validated_at, updated_by, updated_at, last_request_id)
+         VALUES (?, ?, ?, ?, ?, 'validated', 1, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (class_id, slot_id, slot_date) DO NOTHING`,
+      ).bind(callId, schoolId, classId, slotId, date, remark, u.id, now, u.id, now, requestId),
+    )
+  } else {
+    stmts.push(
+      env.DB.prepare(
+        `UPDATE attendance_calls SET version = ?, status = 'corrected', remark = ?, updated_by = ?, updated_at = ?, last_request_id = ?
+          WHERE id = ? AND version = ?`,
+      ).bind(version, remark, u.id, now, requestId, callId, currentVersion),
+    )
+  }
+  stmts.push(
+    env.DB.prepare(`DELETE FROM attendance_entries WHERE call_id = ? AND EXISTS (${guard})`).bind(callId, callId, requestId, version),
+    env.DB.prepare(
+      `INSERT INTO attendance_entries (call_id, student_id, status_id)
+       SELECT ?, key, value FROM json_each(?) WHERE EXISTS (${guard})`,
+    ).bind(callId, JSON.stringify(entries), callId, requestId, version),
+    // UNIQUE (call_id, version) : deux validations simultanées ne peuvent pas créer la même version.
+    env.DB.prepare(
+      `INSERT INTO attendance_revisions (id, call_id, version, actor_user_id, at, remark, reason, changes)
+       SELECT ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (${guard})`,
+    ).bind(newId(), callId, version, u.id, now, remark, reason, changes ? JSON.stringify(changes) : null, callId, requestId, version),
+    await audit(env, {
+      actor: u.id,
+      schoolId,
+      action: d.call ? 'call.corrected' : 'call.validated',
+      objectType: 'call',
+      objectId: callId,
+      details: { classId, slotId, date, version },
+    }),
+  )
+  try {
+    await env.DB.batch(stmts)
+  } catch (e) {
+    if (!(e instanceof Error && /UNIQUE constraint failed/i.test(e.message))) throw e
+  }
+  const after = await env.DB.prepare('SELECT version, last_request_id FROM attendance_calls WHERE class_id = ? AND slot_id = ? AND slot_date = ?')
+    .bind(classId, slotId, date)
+    .first<{ version: number; last_request_id: string }>()
+  if (after?.last_request_id !== requestId)
+    throw new HttpError(409, 'STALE_CALL', 'Cet appel vient d’être validé par quelqu’un d’autre. La page va se mettre à jour.')
+  return json({ ok: true, version: after.version })
+}
+
+/** Appels du jour de l'utilisateur : ses classes affectées et leurs créneaux d'aujourd'hui. */
+export async function myDay(env: Env, req: Request, schoolId: string) {
+  const u = await requireUser(env, req)
+  const m = await requireSchoolRole(env, u, schoolId, ['direction', 'enseignant', 'remplacant'])
+  const school = await env.DB.prepare('SELECT closed_weekdays, timezone FROM schools WHERE id = ?')
+    .bind(schoolId)
+    .first<{ closed_weekdays: number; timezone: string }>()
+  const today = schoolToday(school!.timezone)
+  const now = nowIso()
+  const [classesR, closuresR] = await env.DB.batch([
+    env.DB.prepare(
+      `SELECT c.id, c.name FROM teacher_class_assignments a JOIN classes c ON c.id = a.class_id
+        WHERE a.membership_id = ? AND a.start_at <= ? AND (a.end_at IS NULL OR a.end_at > ?) AND c.archived_at IS NULL ORDER BY c.name`,
+    ).bind(m.id, now, now),
+    env.DB.prepare('SELECT start_date, end_date, label FROM school_closures WHERE school_id = ? AND start_date <= ? AND end_date >= ?').bind(
+      schoolId,
+      today,
+      today,
+    ),
+  ])
+  const classes = classesR.results as { id: string; name: string }[]
+  const closure = closureFor(today, school!.closed_weekdays, closuresR.results as { start_date: string; end_date: string; label: string }[])
+  const bit = 1 << (isoWeekday(today) - 1)
+  const ids = JSON.stringify(classes.map((c) => c.id))
+  const [slotsR, callsR] = await env.DB.batch([
+    env.DB.prepare(
+      `SELECT id, class_id, name, half_day, due_time FROM call_slots
+        WHERE class_id IN (SELECT value FROM json_each(?)) AND archived_at IS NULL AND (weekdays & ?) != 0 ORDER BY half_day, position`,
+    ).bind(ids, bit),
+    env.DB.prepare(
+      `SELECT class_id, slot_id, updated_at FROM attendance_calls WHERE class_id IN (SELECT value FROM json_each(?)) AND slot_date = ?`,
+    ).bind(ids, today),
+  ])
+  const calls = callsR.results as { class_id: string; slot_id: string; updated_at: string }[]
+  return json({
+    today,
+    closure,
+    classes: classes.map((c) => ({
+      id: c.id,
+      name: c.name,
+      slots: closure
+        ? []
+        : (slotsR.results as { id: string; class_id: string; name: string; half_day: string; due_time: string | null }[])
+            .filter((s) => s.class_id === c.id)
+            .map((s) => {
+              const done = calls.find((x) => x.class_id === c.id && x.slot_id === s.id)
+              return { id: s.id, name: s.name, halfDay: s.half_day, dueTime: s.due_time, validatedAt: done?.updated_at ?? null }
+            }),
+    })),
+  })
+}

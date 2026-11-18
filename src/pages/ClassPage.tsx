@@ -7,7 +7,7 @@ import { scheduleSummary, todayIso, weekdaysSummary } from '../lib/schoolFormat'
 import { Badge, Button, Card, ErrorBox, Field, Spinner } from '../components/ui'
 import { api, ApiError, formatDate, ROLE_LABELS, type Role } from '../lib/api'
 import { DEFAULT_SLOT_WEEKDAYS } from '../domain/schedule'
-import { useDirection, type Overview } from '../lib/school'
+import { callPath, parisToday, useDirection, type Overview } from '../lib/school'
 
 interface Student {
   id: string
@@ -119,7 +119,7 @@ export default function ClassPage() {
             run={run}
             reload={load}
           />
-          <SlotsSection data={data} base={`${base}/classes/${classId}`} run={run} />
+          <SlotsSection data={data} base={`${base}/classes/${classId}`} run={run} schoolId={schoolId} classId={classId} />
         </div>
       )}
     </Shell>
@@ -473,7 +473,19 @@ function StudentEditor({
   )
 }
 
-function SlotsSection({ data, base, run }: { data: ClassDetail; base: string; run: Run }) {
+function SlotsSection({
+  data,
+  base,
+  run,
+  schoolId,
+  classId,
+}: {
+  data: ClassDetail
+  base: string
+  run: Run
+  schoolId: string
+  classId: string
+}) {
   const [editing, setEditing] = useState<string | 'new' | null>(null)
   return (
     <Section
@@ -511,7 +523,13 @@ function SlotsSection({ data, base, run }: { data: ClassDetail; base: string; ru
                     {s.due_time && ` · avant ${Number(s.due_time.slice(0, 2))} h ${s.due_time.slice(3)}`}
                   </p>
                 </div>
-                <div className="flex gap-1">
+                <div className="flex flex-wrap gap-1">
+                  <Link
+                    to={callPath(schoolId, classId, parisToday(), s.id)}
+                    className="inline-flex min-h-11 items-center rounded-xl px-4 text-sm font-semibold text-primary-strong hover:bg-surface"
+                  >
+                    Appel du jour
+                  </Link>
                   <Button variant="ghost" onClick={() => setEditing(s.id)}>
                     Modifier
                   </Button>

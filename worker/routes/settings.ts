@@ -13,7 +13,7 @@ async function direction(env: Env, req: Request, schoolId: string) {
 }
 
 /** États par défaut : Présent / Absent, créés à la première consultation. */
-async function ensureDefaultStatuses(env: Env, schoolId: string) {
+export async function ensureDefaultStatuses(env: Env, schoolId: string) {
   const any = await env.DB.prepare('SELECT 1 FROM attendance_statuses WHERE school_id = ? LIMIT 1').bind(schoolId).first()
   if (any) return
   const now = nowIso()

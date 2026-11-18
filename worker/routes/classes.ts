@@ -527,6 +527,12 @@ export async function cancelImport(env: Env, req: Request, schoolId: string, imp
     .first<{ result: string }>()
   if (!job) throw notFound()
   const { classes } = JSON.parse(job.result) as { classes: string[] }
+  const used = await env.DB.prepare(
+    'SELECT 1 FROM attendance_entries e JOIN students s ON s.id = e.student_id WHERE s.import_id = ? LIMIT 1',
+  )
+    .bind(importId)
+    .first()
+  if (used) throw conflict('IMPORT_IN_USE', 'Des appels ont déjà été faits avec ces élèves : l’import ne peut plus être annulé.')
   const now = nowIso()
   await env.DB.batch([
     env.DB.prepare('DELETE FROM student_schedules WHERE student_id IN (SELECT id FROM students WHERE import_id = ?)').bind(importId),

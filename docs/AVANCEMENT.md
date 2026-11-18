@@ -5,7 +5,7 @@
 | 0 / Initialisation | Dépôt, conventions, design tokens, CI, déploiement, règles métier pures + tests, plan de schéma | **Fait** (voir ci-dessous) |
 | 1 / Accès + écoles | Admin et Direction : invitations, authentification, rôles, cloisonnement et tests | **Fait** (voir ci-dessous) |
 | 2 / Classes + élèves | Niveaux, jours, créneaux, états, import CSV/XLSX | **Fait** (voir ci-dessous) |
-| 3 / Appel enseignant | Grille, compteurs, validation, persistance, corrections | Règles métier faites, persistance à faire |
+| 3 / Appel enseignant | Grille, compteurs, validation, persistance, corrections | **Fait** (voir ci-dessous) |
 | 4 / Direction | Dashboard temps réel, historique, messages, rappels | À faire |
 | 5 / Répartitions | Algorithme, édition, affectations, synchronisation | Algorithme fait et testé, reste à faire |
 | 6 / Finalisation | Exports, PWA, audit sécurité, a11y | À faire |
@@ -61,6 +61,27 @@ plus un parcours navigateur complet (création de classe, élèves, emploi du te
   revérification serveur, import atomique, bouton « Annuler l'import ».
 - Cloisonnement : tests négatifs sur chaque nouvel objet (classe, élève, état, enseignant d'une autre école).
 
+## Lot 3 — vérifié
+
+Tests : `tests/calls.test.ts` (18 tests API sur D1 locale) et parcours navigateur sur téléphone (390 px) :
+ouverture directe de l'appel, 2 taps, rechargement de page (brouillon retrouvé), double tap sur « Valider »
+(une seule version), correction avec motif, historique, vue Direction.
+
+- Accueil enseignant : appels du jour par classe et créneau, état « à faire » / « validé » ; s'il n'y a qu'un
+  appel à faire, il s'ouvre directement.
+- Grille d'appel : élèves attendus ce jour-là (emploi du temps, arrivées, départs, fermetures), ordre stable,
+  prépositionnés « Présent » mais marqués « à vérifier » jusqu'à la validation, tap = état suivant,
+  menu de choix direct au-delà de 2 états, compteurs par état, remarque courte facultative.
+- Validation : horodatage serveur, auteur, version ; idempotente (double tap, renvoi réseau) ; une validation
+  concurrente depuis un autre appareil est refusée au lieu d'écraser.
+- Corrections : nouvelle version auditée (auteur, date, ancien et nouvel état, motif facultatif), historique.
+- Brouillon conservé sur l'appareil (rechargement, écran verrouillé) avec mention « pas encore transmis ».
+- Cas particuliers : journée sans classe, classe sans élève attendu (pas de validation trompeuse), élève changé
+  de classe après l'appel (il reste dans l'appel validé), jour à venir refusé.
+- Accès : enseignant ou remplaçant affecté à la classe (accès coupé à la fin du remplacement ou au retrait de
+  la classe), direction de l'école ; tests négatifs inter-écoles.
+- « Annuler l'import » refusé dès qu'un appel concerne ces élèves.
+
 ## Écarts au cahier des charges (assumés)
 
 - **Cloudflare D1 au lieu de Supabase** (quota de projets Supabase atteint). D1 n'a pas de RLS : le
@@ -74,6 +95,6 @@ plus un parcours navigateur complet (création de classe, élèves, emploi du te
 
 ## Écarts ouverts
 
-- Pas encore d'appel enregistré (lot 3). La démo de la page d'accueil n'enregistre rien.
-- « Annuler l'import » ne sera plus possible une fois des appels enregistrés pour ces élèves (règle à appliquer au lot 3).
+- Message de la direction sur l'écran d'appel, tableau de bord temps réel, absences prévues : lot 4.
+- Mode hors ligne complet : lot 6 (aujourd'hui, brouillon local seulement ; la validation exige le réseau).
 - Localisation des données D1 : à vérifier dans le tableau de bord Cloudflare (juridiction UE souhaitée).

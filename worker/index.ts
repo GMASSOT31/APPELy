@@ -35,11 +35,13 @@ import {
   setClosedWeekdays,
   updateStatus,
 } from './routes/settings'
+import { getCall, myDay, validateCall } from './routes/calls'
 
 type Handler = (env: Env, req: Request, params: string[], origin: string) => Promise<Response>
 
 const ID = '([0-9a-f-]{36})'
 const TOKEN = '([A-Za-z0-9_-]{20,100})'
+const DATE = '(\\d{4}-\\d{2}-\\d{2})'
 
 const routes: [string, RegExp, Handler][] = [
   ['GET', /^\/api\/setup$/, (env) => getSetup(env)],
@@ -85,6 +87,10 @@ const routes: [string, RegExp, Handler][] = [
   ['POST', new RegExp(`^/api/schools/${ID}/statuses/${ID}$`), (env, req, [s, st]) => updateStatus(env, req, s, st)],
   ['POST', new RegExp(`^/api/schools/${ID}/statuses/${ID}/move$`), (env, req, [s, st]) => moveStatus(env, req, s, st)],
   ['POST', new RegExp(`^/api/schools/${ID}/statuses/${ID}/archive$`), (env, req, [s, st]) => archiveStatus(env, req, s, st)],
+  // Lot 3 : appel
+  ['GET', new RegExp(`^/api/schools/${ID}/my-day$`), (env, req, [s]) => myDay(env, req, s)],
+  ['GET', new RegExp(`^/api/schools/${ID}/classes/${ID}/calls/${DATE}/${ID}$`), (env, req, [s, c, d, sl]) => getCall(env, req, s, c, d, sl)],
+  ['POST', new RegExp(`^/api/schools/${ID}/classes/${ID}/calls/${DATE}/${ID}/validate$`), (env, req, [s, c, d, sl]) => validateCall(env, req, s, c, d, sl)],
 ]
 
 export async function handleApi(req: Request, env: Env): Promise<Response> {

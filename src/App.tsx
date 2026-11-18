@@ -12,6 +12,7 @@ import SchoolClasses from './pages/SchoolClasses'
 import ClassPage from './pages/ClassPage'
 import ImportStudents from './pages/ImportStudents'
 import SchoolSettings from './pages/SchoolSettings'
+import CallPage from './pages/CallPage'
 import Setup from './pages/Setup'
 import Teacher from './pages/Teacher'
 
@@ -49,6 +50,7 @@ export default function App() {
           <Route path="/ecole/:schoolId/import" element={<Protected><ImportStudents /></Protected>} />
           <Route path="/ecole/:schoolId/classes/:classId" element={<Protected><ClassPage /></Protected>} />
           <Route path="/enseignant" element={<Protected><Teacher /></Protected>} />
+          <Route path="/appel/:schoolId/:classId/:date/:slotId" element={<Protected><CallPage /></Protected>} />
           <Route path="/sans-acces" element={<Protected><NoAccess /></Protected>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
