@@ -66,7 +66,7 @@ export default function ClassPage() {
 
   return (
     <Shell title={data?.class.name ?? 'Classe'} subtitle={membership.schoolName}>
-      <Link to={`/ecole/${schoolId}`} className="mb-4 inline-flex min-h-11 items-center gap-1.5 text-sm font-semibold text-muted hover:text-ink">
+      <Link to={`/ecole/${schoolId}/classes`} className="mb-4 inline-flex min-h-11 items-center gap-1.5 text-sm font-semibold text-muted hover:text-ink">
         <ArrowLeft className="size-4" aria-hidden /> Toutes les classes
       </Link>
       <ErrorBox>{error}</ErrorBox>
@@ -101,7 +101,7 @@ export default function ClassPage() {
                 variant="ghost"
                 onClick={async () => {
                   if (await run(`${base}/classes/${classId}/archive`, {}, `Archiver la classe ${data.class.name} ?`))
-                    navigate(`/ecole/${schoolId}`)
+                    navigate(`/ecole/${schoolId}/classes`)
                 }}
               >
                 <Trash2 className="size-4" aria-hidden /> Archiver

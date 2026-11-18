@@ -1,10 +1,14 @@
 import { NavLink } from 'react-router-dom'
-import { School, Settings, Users } from 'lucide-react'
+import { CalendarX, History, LayoutDashboard, Megaphone, School, Settings, Users } from 'lucide-react'
 
 /** Navigation persistante côté Direction (§11.1). */
 export function SchoolNav({ schoolId }: { schoolId: string }) {
   const items = [
-    { to: `/ecole/${schoolId}`, label: 'Classes', icon: School, end: true },
+    { to: `/ecole/${schoolId}`, label: 'Aujourd’hui', icon: LayoutDashboard, end: true },
+    { to: `/ecole/${schoolId}/classes`, label: 'Classes', icon: School, end: false },
+    { to: `/ecole/${schoolId}/messages`, label: 'Messages', icon: Megaphone, end: false },
+    { to: `/ecole/${schoolId}/absences`, label: 'Absences prévues', icon: CalendarX, end: false },
+    { to: `/ecole/${schoolId}/historique`, label: 'Historique', icon: History, end: false },
     { to: `/ecole/${schoolId}/equipe`, label: 'Équipe', icon: Users, end: false },
     { to: `/ecole/${schoolId}/parametres`, label: 'Paramètres', icon: Settings, end: false },
   ]

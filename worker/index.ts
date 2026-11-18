@@ -36,6 +36,8 @@ import {
   updateStatus,
 } from './routes/settings'
 import { getCall, myDay, validateCall } from './routes/calls'
+import { archiveMessage, createMessage, getDashboard, getHistory, listMessages, remindCall } from './routes/direction'
+import { cancelAbsence, createAbsence, listAbsences } from './routes/absences'
 
 type Handler = (env: Env, req: Request, params: string[], origin: string) => Promise<Response>
 
@@ -91,6 +93,16 @@ const routes: [string, RegExp, Handler][] = [
   ['GET', new RegExp(`^/api/schools/${ID}/my-day$`), (env, req, [s]) => myDay(env, req, s)],
   ['GET', new RegExp(`^/api/schools/${ID}/classes/${ID}/calls/${DATE}/${ID}$`), (env, req, [s, c, d, sl]) => getCall(env, req, s, c, d, sl)],
   ['POST', new RegExp(`^/api/schools/${ID}/classes/${ID}/calls/${DATE}/${ID}/validate$`), (env, req, [s, c, d, sl]) => validateCall(env, req, s, c, d, sl)],
+  // Lot 4 : direction (tableau de bord, relances, messages, absences prévues, historique)
+  ['GET', new RegExp(`^/api/schools/${ID}/dashboard$`), (env, req, [s]) => getDashboard(env, req, s)],
+  ['POST', new RegExp(`^/api/schools/${ID}/classes/${ID}/calls/${DATE}/${ID}/remind$`), (env, req, [s, c, d, sl]) => remindCall(env, req, s, c, d, sl)],
+  ['GET', new RegExp(`^/api/schools/${ID}/messages$`), (env, req, [s]) => listMessages(env, req, s)],
+  ['POST', new RegExp(`^/api/schools/${ID}/messages$`), (env, req, [s]) => createMessage(env, req, s)],
+  ['POST', new RegExp(`^/api/schools/${ID}/messages/${ID}/archive$`), (env, req, [s, m]) => archiveMessage(env, req, s, m)],
+  ['GET', new RegExp(`^/api/schools/${ID}/absences$`), (env, req, [s]) => listAbsences(env, req, s)],
+  ['POST', new RegExp(`^/api/schools/${ID}/absences$`), (env, req, [s]) => createAbsence(env, req, s)],
+  ['POST', new RegExp(`^/api/schools/${ID}/absences/${ID}/cancel$`), (env, req, [s, a]) => cancelAbsence(env, req, s, a)],
+  ['GET', new RegExp(`^/api/schools/${ID}/history$`), (env, req, [s]) => getHistory(env, req, s)],
 ]
 
 export async function handleApi(req: Request, env: Env): Promise<Response> {

@@ -1,6 +1,6 @@
 # Plan du modèle de données (Cloudflare D1 / SQLite)
 
-Implémenté : lot 1 (`worker/migrations/0001_acces_ecoles.ts` : schools, users, memberships, invitations, sessions, login_attempts, audit_events) et lot 2 (`0002_classes_eleves.ts` : school_closures, classes, teacher_class_assignments, students, student_schedules, call_slots, attendance_statuses, import_jobs). Lot 3 (`0003_appels.ts` : attendance_calls, attendance_entries, attendance_revisions). Les tables de répartition arrivent au lot 5.
+Implémenté : lot 1 (`worker/migrations/0001_acces_ecoles.ts` : schools, users, memberships, invitations, sessions, login_attempts, audit_events) et lot 2 (`0002_classes_eleves.ts` : school_closures, classes, teacher_class_assignments, students, student_schedules, call_slots, attendance_statuses, import_jobs). Lot 3 (`0003_appels.ts` : attendance_calls, attendance_entries, attendance_revisions). Lot 4 (`0004_direction.ts` : direction_messages, call_reminders, planned_absences). Les tables de répartition arrivent au lot 5.
 
 Repris du cahier des charges §13, avec les contraintes à garantir côté base.
 
@@ -18,7 +18,9 @@ Repris du cahier des charges §13, avec les contraintes à garantir côté base.
 | attendance_entries | call_id, student_id, status_id, physical_host_class_id, revision | unique (call_id, student_id) |
 | distribution_plans | id, school_id, source_class_id, from/to, slots, state, author | |
 | distribution_assignments | plan_id, student_id, host_class_id, slot_key | **une seule affectation active par élève + créneau** |
-| direction_messages | id, school_id, target_kind, targets, text, start_at, end_at, priority | |
+| direction_messages | id, school_id, target_kind, targets (JSON), body, priority, start_date, end_date, created_by, archived_at | target_kind ∈ school / levels / classes ; priority ∈ normal / important ; end_date ≥ start_date |
+| call_reminders | school_id, class_id, slot_id, slot_date, sent_by, sent_at | relance d'un appel du jour non validé (5 min mini entre deux) |
+| planned_absences | school_id, student_id, start_date, end_date, half_days, reason, created_by, cancelled_at | half_days ∈ day / am / pm ; motif pris dans une liste fermée ; annulation au lieu de suppression |
 | audit_events | actor, school_id, action, object, before/after minimal, timestamp serveur | append-only |
 | import_jobs / export_jobs | school_id, user_id, kind, result, timestamp, deletion_state | |
 

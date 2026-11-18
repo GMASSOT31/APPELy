@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { CheckCircle2, ChevronRight, Circle } from 'lucide-react'
+import { BellRing, CalendarX, CheckCircle2, ChevronRight, Circle } from 'lucide-react'
 import { Shell } from '../components/Shell'
+import { MessageList, type DirectionMessage } from '../components/DirectionMessages'
+import { timeOf } from '../lib/schoolFormat'
 import { Card, Spinner } from '../components/ui'
 import { api, formatDate, ROLE_LABELS } from '../lib/api'
 import { callPath } from '../lib/school'
@@ -13,14 +15,18 @@ interface DaySlot {
   halfDay: 'am' | 'pm'
   dueTime: string | null
   validatedAt: string | null
+  remindedAt: string | null
 }
 interface Day {
   today: string
   closure: string | null
+  messages: DirectionMessage[]
   classes: { id: string; name: string; slots: DaySlot[] }[]
 }
 
 const AUTO_OPEN_KEY = 'appely:auto-opened'
+/** Relances et messages de la direction : actualisation légère toutes les 60 s. */
+const REFRESH_MS = 60_000
 
 /**
  * Accueil enseignant : les appels du jour. S'il n'y a qu'un seul appel à faire, il s'ouvre
@@ -34,30 +40,42 @@ export default function Teacher() {
 
   useEffect(() => {
     if (!me) return
-    Promise.all(
-      me.memberships.map((m) =>
-        api<Day>(`/api/schools/${m.schoolId}/my-day`).then(
-          (d) => [m.schoolId, d] as const,
-          () => [m.schoolId, null] as const,
+    let first = true
+    const fetchAll = () =>
+      Promise.all(
+        me.memberships.map((m) =>
+          api<Day>(`/api/schools/${m.schoolId}/my-day`).then(
+            (d) => [m.schoolId, d] as const,
+            () => [m.schoolId, null] as const,
+          ),
         ),
-      ),
-    ).then((entries) => {
-      const map = Object.fromEntries(entries)
-      setDays(map)
-      setLoaded(true)
-      const pending = entries.flatMap(([sid, d]) =>
-        (d?.classes ?? []).flatMap((c) => c.slots.filter((s) => !s.validatedAt).map((s) => callPath(sid, c.id, d!.today, s.id))),
-      )
-      try {
-        const today = entries.find(([, d]) => d)?.[1]?.today
-        if (pending.length === 1 && today && sessionStorage.getItem(AUTO_OPEN_KEY) !== today) {
-          sessionStorage.setItem(AUTO_OPEN_KEY, today)
-          navigate(pending[0])
+      ).then((entries) => {
+        // Actualisation : on ne remplace pas une donnée affichée par une erreur réseau passagère.
+        setDays((prev) => Object.fromEntries(entries.map(([sid, d]) => [sid, d ?? prev[sid] ?? null])))
+        setLoaded(true)
+        if (!first) return
+        first = false
+        const pending = entries.flatMap(([sid, d]) =>
+          (d?.classes ?? []).flatMap((c) => c.slots.filter((s) => !s.validatedAt).map((s) => callPath(sid, c.id, d!.today, s.id))),
+        )
+        try {
+          const today = entries.find(([, d]) => d)?.[1]?.today
+          if (pending.length === 1 && today && sessionStorage.getItem(AUTO_OPEN_KEY) !== today) {
+            sessionStorage.setItem(AUTO_OPEN_KEY, today)
+            navigate(pending[0])
+          }
+        } catch {
+          /* stockage indisponible : pas d'ouverture automatique */
         }
-      } catch {
-        /* stockage indisponible : pas d'ouverture automatique */
-      }
-    })
+      })
+    void fetchAll()
+    const timer = setInterval(() => document.visibilityState === 'visible' && void fetchAll(), REFRESH_MS)
+    const onVisible = () => document.visibilityState === 'visible' && void fetchAll()
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [me, navigate])
 
   return (
@@ -70,10 +88,25 @@ export default function Teacher() {
             const d = days[m.schoolId]
             return (
               <section key={m.schoolId}>
-                <h2 className="mb-2 text-sm font-semibold tracking-wide text-muted uppercase">
-                  {m.schoolName} · {ROLE_LABELS[m.role]}
-                  {m.activeTo && ` jusqu’au ${formatDate(m.activeTo)}`}
-                </h2>
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <h2 className="text-sm font-semibold tracking-wide text-muted uppercase">
+                    {m.schoolName} · {ROLE_LABELS[m.role]}
+                    {m.activeTo && ` jusqu’au ${formatDate(m.activeTo)}`}
+                  </h2>
+                  {d && d.classes.length > 0 && (
+                    <Link
+                      to={`/ecole/${m.schoolId}/absences`}
+                      className="inline-flex min-h-11 items-center gap-1.5 rounded-xl px-3 text-sm font-semibold text-primary hover:bg-surface"
+                    >
+                      <CalendarX className="size-4" aria-hidden /> Absences prévues
+                    </Link>
+                  )}
+                </div>
+                {d && d.messages.length > 0 && (
+                  <div className="mb-3">
+                    <MessageList messages={d.messages} showClasses={d.classes.length > 1} />
+                  </div>
+                )}
                 {!d || d.classes.length === 0 ? (
                   <Card className="text-sm text-muted">
                     Aucune classe ne vous est encore affectée. La direction peut vous affecter une classe depuis sa page.
@@ -113,6 +146,11 @@ export default function Teacher() {
                                       ? `Validé à ${new Date(s.validatedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`
                                       : `À faire${s.dueTime ? ` avant ${Number(s.dueTime.slice(0, 2))} h ${s.dueTime.slice(3)}` : ''}`}
                                   </span>
+                                  {s.remindedAt && !s.validatedAt && (
+                                    <span className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-0.5 text-xs font-semibold text-danger-ink">
+                                      <BellRing className="size-3.5" aria-hidden /> Relance de la direction à {timeOf(s.remindedAt)}
+                                    </span>
+                                  )}
                                 </span>
                                 <ChevronRight className="size-5 shrink-0" aria-hidden />
                               </Link>
@@ -129,3 +167,4 @@ export default function Teacher() {
     </Shell>
   )
 }
+

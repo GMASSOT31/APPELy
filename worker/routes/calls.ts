@@ -2,14 +2,13 @@ import { audit, nowIso, requireSchoolRole, requireUser, type CurrentUser, type E
 import { newId } from '../lib/crypto'
 import { badRequest, conflict, forbidden, HttpError, json, notFound, readJson } from '../lib/http'
 import { ensureDefaultStatuses } from './settings'
+import { messagesForClass, publicMessage, schoolToday, visibleMessagesQuery, type MessageRow } from '../lib/day'
+import { plannedCovers, sortMessages, type PlannedHalfDays } from '../../src/domain/direction'
 import { closureFor, isExpected, isoWeekday, isValidDate, type HalfDay } from '../../src/domain/schedule'
 
 export const REMARK_MAX = 200
 
-/** Date du jour dans le fuseau de l'école (Europe/Paris par défaut). */
-export function schoolToday(timezone = 'Europe/Paris', now = new Date()): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now)
-}
+export { schoolToday }
 
 interface Slot {
   id: string
@@ -27,9 +26,9 @@ interface Slot {
  */
 async function requireCallAccess(env: Env, u: CurrentUser, schoolId: string, classId: string) {
   const m = await requireSchoolRole(env, u, schoolId, ['direction', 'enseignant', 'remplacant'])
-  const cls = await env.DB.prepare('SELECT id, name, archived_at FROM classes WHERE id = ? AND school_id = ?')
+  const cls = await env.DB.prepare('SELECT id, name, levels, archived_at FROM classes WHERE id = ? AND school_id = ?')
     .bind(classId, schoolId)
-    .first<{ id: string; name: string; archived_at: string | null }>()
+    .first<{ id: string; name: string; levels: string; archived_at: string | null }>()
   if (!cls) throw notFound()
   if (m.role !== 'direction') {
     const now = nowIso()
@@ -55,7 +54,7 @@ interface StudentRow {
 /** Tout ce qu'il faut pour afficher ou valider un appel : élèves attendus, états, appel existant. */
 async function loadCall(env: Env, schoolId: string, classId: string, date: string, slotId: string) {
   await ensureDefaultStatuses(env, schoolId)
-  const [schoolR, slotR, closuresR, studentsR, schedulesR, statusesR, callR] = await env.DB.batch([
+  const [schoolR, slotR, closuresR, studentsR, schedulesR, statusesR, callR, messagesR, plannedR, reminderR] = await env.DB.batch([
     env.DB.prepare('SELECT closed_weekdays, timezone FROM schools WHERE id = ?').bind(schoolId),
     env.DB.prepare('SELECT id, class_id, name, half_day, weekdays, due_time, archived_at FROM call_slots WHERE id = ? AND class_id = ? AND school_id = ?').bind(
       slotId,
@@ -75,6 +74,13 @@ async function loadCall(env: Env, schoolId: string, classId: string, date: strin
       'SELECT id, label, color, category, position, archived_at FROM attendance_statuses WHERE school_id = ? ORDER BY position',
     ).bind(schoolId),
     env.DB.prepare('SELECT * FROM attendance_calls WHERE class_id = ? AND slot_id = ? AND slot_date = ?').bind(classId, slotId, date),
+    // Lot 4 : mot de la direction, absences prévues, relance.
+    visibleMessagesQuery(env, schoolId, date),
+    env.DB.prepare(
+      `SELECT pa.student_id, pa.start_date, pa.end_date, pa.half_days, pa.reason FROM planned_absences pa JOIN students s ON s.id = pa.student_id
+        WHERE s.class_id = ? AND pa.cancelled_at IS NULL AND pa.start_date <= ? AND pa.end_date >= ?`,
+    ).bind(classId, date, date),
+    env.DB.prepare('SELECT MAX(sent_at) AS at FROM call_reminders WHERE class_id = ? AND slot_id = ? AND slot_date = ?').bind(classId, slotId, date),
   ])
   const school = schoolR.results[0] as { closed_weekdays: number; timezone: string }
   const slot = slotR.results[0] as Slot | undefined
@@ -122,10 +128,16 @@ async function loadCall(env: Env, schoolId: string, classId: string, date: strin
   const closure = closureFor(date, school.closed_weekdays, closuresR.results as { start_date: string; end_date: string; label: string }[])
   const noCallReason = call ? null : slot.archived_at ? 'Cet appel a été supprimé.' : closure ?? (weekdayOk ? null : 'Pas d’appel prévu ce jour-là.')
 
+  const planned: Record<string, string> = {}
+  for (const p of plannedR.results as { student_id: string; start_date: string; end_date: string; half_days: PlannedHalfDays; reason: string }[])
+    if (plannedCovers(p, date, half)) planned[p.student_id] = p.reason
   return {
     school,
     slot,
     call,
+    messages: messagesR.results as MessageRow[],
+    planned,
+    remindedAt: (reminderR.results[0] as { at: string | null } | undefined)?.at ?? null,
     entries,
     students,
     statuses: statusesR.results as { id: string; label: string; color: string; category: string; position: number; archived_at: string | null }[],
@@ -179,6 +191,10 @@ export async function getCall(env: Env, req: Request, schoolId: string, classId:
       .filter((s) => !s.archived_at || usedStatus.has(s.id))
       .map((s) => ({ id: s.id, label: s.label, color: s.color, category: s.category, active: !s.archived_at })),
     students: d.students.map((s) => ({ id: s.id, firstName: s.first_name, lastName: s.last_name })),
+    messages: messagesForClass(d.messages, { id: cls.id, levels: JSON.parse(cls.levels) }, date).map(publicMessage),
+    // Absences prévues des élèves de la liste : l'élève est prépositionné Absent mais reste « à vérifier ».
+    plannedAbsences: Object.fromEntries(Object.entries(d.planned).filter(([id]) => d.students.some((s) => s.id === id))),
+    remindedAt: d.call ? null : d.remindedAt,
     call: d.call
       ? {
           version: d.call.version,
@@ -312,7 +328,7 @@ export async function myDay(env: Env, req: Request, schoolId: string) {
   const now = nowIso()
   const [classesR, closuresR] = await env.DB.batch([
     env.DB.prepare(
-      `SELECT c.id, c.name FROM teacher_class_assignments a JOIN classes c ON c.id = a.class_id
+      `SELECT c.id, c.name, c.levels FROM teacher_class_assignments a JOIN classes c ON c.id = a.class_id
         WHERE a.membership_id = ? AND a.start_at <= ? AND (a.end_at IS NULL OR a.end_at > ?) AND c.archived_at IS NULL ORDER BY c.name`,
     ).bind(m.id, now, now),
     env.DB.prepare('SELECT start_date, end_date, label FROM school_closures WHERE school_id = ? AND start_date <= ? AND end_date >= ?').bind(
@@ -321,11 +337,11 @@ export async function myDay(env: Env, req: Request, schoolId: string) {
       today,
     ),
   ])
-  const classes = classesR.results as { id: string; name: string }[]
+  const classes = classesR.results as { id: string; name: string; levels: string }[]
   const closure = closureFor(today, school!.closed_weekdays, closuresR.results as { start_date: string; end_date: string; label: string }[])
   const bit = 1 << (isoWeekday(today) - 1)
   const ids = JSON.stringify(classes.map((c) => c.id))
-  const [slotsR, callsR] = await env.DB.batch([
+  const [slotsR, callsR, remindersR, messagesR] = await env.DB.batch([
     env.DB.prepare(
       `SELECT id, class_id, name, half_day, due_time FROM call_slots
         WHERE class_id IN (SELECT value FROM json_each(?)) AND archived_at IS NULL AND (weekdays & ?) != 0 ORDER BY half_day, position`,
@@ -333,11 +349,27 @@ export async function myDay(env: Env, req: Request, schoolId: string) {
     env.DB.prepare(
       `SELECT class_id, slot_id, updated_at FROM attendance_calls WHERE class_id IN (SELECT value FROM json_each(?)) AND slot_date = ?`,
     ).bind(ids, today),
+    env.DB.prepare(
+      `SELECT class_id, slot_id, MAX(sent_at) AS at FROM call_reminders WHERE class_id IN (SELECT value FROM json_each(?)) AND slot_date = ?
+        GROUP BY class_id, slot_id`,
+    ).bind(ids, today),
+    visibleMessagesQuery(env, schoolId, today),
   ])
   const calls = callsR.results as { class_id: string; slot_id: string; updated_at: string }[]
+  const reminders = remindersR.results as { class_id: string; slot_id: string; at: string }[]
+  // Mot de la direction : messages du jour qui concernent au moins une de ses classes (sans doublon).
+  const msgRows = messagesR.results as MessageRow[]
+  const messages = new Map<string, { message: MessageRow; classes: string[] }>()
+  for (const c of classes)
+    for (const msg of messagesForClass(msgRows, { id: c.id, levels: JSON.parse(c.levels) }, today)) {
+      const e = messages.get(msg.id) ?? { message: msg, classes: [] }
+      e.classes.push(c.name)
+      messages.set(msg.id, e)
+    }
   return json({
     today,
     closure,
+    messages: sortMessages([...messages.values()].map((e) => ({ ...e.message, classes: e.classes }))).map((m) => ({ ...publicMessage(m), classes: m.classes })),
     classes: classes.map((c) => ({
       id: c.id,
       name: c.name,
@@ -347,7 +379,15 @@ export async function myDay(env: Env, req: Request, schoolId: string) {
             .filter((s) => s.class_id === c.id)
             .map((s) => {
               const done = calls.find((x) => x.class_id === c.id && x.slot_id === s.id)
-              return { id: s.id, name: s.name, halfDay: s.half_day, dueTime: s.due_time, validatedAt: done?.updated_at ?? null }
+              const reminder = done ? undefined : reminders.find((x) => x.class_id === c.id && x.slot_id === s.id)
+              return {
+                id: s.id,
+                name: s.name,
+                halfDay: s.half_day,
+                dueTime: s.due_time,
+                validatedAt: done?.updated_at ?? null,
+                remindedAt: reminder?.at ?? null,
+              }
             }),
     })),
   })

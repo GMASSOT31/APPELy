@@ -15,6 +15,10 @@ import SchoolSettings from './pages/SchoolSettings'
 import CallPage from './pages/CallPage'
 import Setup from './pages/Setup'
 import Teacher from './pages/Teacher'
+import Dashboard from './pages/Dashboard'
+import Messages from './pages/Messages'
+import Absences from './pages/Absences'
+import HistoryPage from './pages/History'
 
 function Home() {
   const { me, loading } = useSession()
@@ -44,7 +48,11 @@ export default function App() {
           <Route path="/installation" element={<Setup />} />
           <Route path="/invitation/:token" element={<Invitation />} />
           <Route path="/admin" element={<Protected><Admin /></Protected>} />
-          <Route path="/ecole/:schoolId" element={<Protected><SchoolClasses /></Protected>} />
+          <Route path="/ecole/:schoolId" element={<Protected><Dashboard /></Protected>} />
+          <Route path="/ecole/:schoolId/classes" element={<Protected><SchoolClasses /></Protected>} />
+          <Route path="/ecole/:schoolId/messages" element={<Protected><Messages /></Protected>} />
+          <Route path="/ecole/:schoolId/absences" element={<Protected><Absences /></Protected>} />
+          <Route path="/ecole/:schoolId/historique" element={<Protected><HistoryPage /></Protected>} />
           <Route path="/ecole/:schoolId/equipe" element={<Protected><SchoolTeam /></Protected>} />
           <Route path="/ecole/:schoolId/parametres" element={<Protected><SchoolSettings /></Protected>} />
           <Route path="/ecole/:schoolId/import" element={<Protected><ImportStudents /></Protected>} />

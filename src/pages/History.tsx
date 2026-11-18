@@ -1,0 +1,189 @@
+import { useEffect, useState } from 'react'
+import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
+import { ChevronRight } from 'lucide-react'
+import { Shell } from '../components/Shell'
+import { SchoolNav } from '../components/SchoolNav'
+import { Badge, Card, ErrorBox, Spinner } from '../components/ui'
+import { api, formatDate } from '../lib/api'
+import { callPath, useDirection } from '../lib/school'
+import { timeOf } from '../lib/schoolFormat'
+
+interface Row {
+  date: string
+  classId: string
+  className: string
+  slot: { id: string; name: string; halfDay: 'am' | 'pm' }
+  state: 'validated' | 'corrected' | 'missing'
+  version: number | null
+  validatedAt: string | null
+  updatedAt: string | null
+  by: string | null
+  counts: { present: number; absent: number; other: number } | null
+  expected: number
+}
+interface Data {
+  from: string
+  to: string
+  today: string
+  truncated: boolean
+  rows: Row[]
+  classes: { id: string; name: string }[]
+  people: { id: string; display_name: string }[]
+}
+
+const STATES = [
+  ['', 'Tous'],
+  ['validated', 'Validé'],
+  ['corrected', 'Corrigé'],
+  ['missing', 'Non fait'],
+] as const
+
+const inputCls = 'min-h-11 w-full min-w-0 rounded-xl bg-white px-3 text-base ring-1 ring-line focus:ring-2 focus:ring-primary focus:outline-none'
+
+/** Historique des appels (§9) : filtres par date, classe, personne et état ; détail et corrections. */
+export default function HistoryPage() {
+  const { schoolId = '' } = useParams()
+  const membership = useDirection(schoolId)
+  const [params, setParams] = useSearchParams()
+  const [data, setData] = useState<Data | null>(null)
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(true)
+  const query = params.toString()
+
+  useEffect(() => {
+    let alive = true
+    setLoading(true)
+    api<Data>(`/api/schools/${schoolId}/history${query ? `?${query}` : ''}`).then(
+      (d) => {
+        if (!alive) return
+        setData(d)
+        setError('')
+        setLoading(false)
+      },
+      (e) => {
+        if (!alive) return
+        setError(e.message)
+        setLoading(false)
+      },
+    )
+    return () => {
+      alive = false
+    }
+  }, [schoolId, query])
+
+  if (!membership) return <Navigate to="/" replace />
+
+  const set = (k: string, v: string) => {
+    const p = new URLSearchParams(params)
+    if (v) p.set(k, v)
+    else p.delete(k)
+    setParams(p, { replace: true })
+  }
+
+  // Regroupement par jour pour une lecture rapide.
+  const days = new Map<string, Row[]>()
+  for (const r of data?.rows ?? []) days.set(r.date, [...(days.get(r.date) ?? []), r])
+
+  return (
+    <Shell title="Historique des appels">
+      <SchoolNav schoolId={schoolId} />
+      <Card className="mb-4">
+        <form className="grid grid-cols-2 gap-3 md:grid-cols-5" onSubmit={(e) => e.preventDefault()} aria-label="Filtres">
+          <label className="grid gap-1.5 text-sm font-medium">
+            Du
+            <input type="date" value={params.get('from') ?? data?.from ?? ''} max={data?.today} onChange={(e) => set('from', e.target.value)} className={inputCls} />
+          </label>
+          <label className="grid gap-1.5 text-sm font-medium">
+            Au
+            <input type="date" value={params.get('to') ?? data?.to ?? ''} max={data?.today} onChange={(e) => set('to', e.target.value)} className={inputCls} />
+          </label>
+          <label className="grid gap-1.5 text-sm font-medium">
+            Classe
+            <select value={params.get('classId') ?? ''} onChange={(e) => set('classId', e.target.value)} className={inputCls}>
+              <option value="">Toutes</option>
+              {data?.classes.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="grid gap-1.5 text-sm font-medium">
+            Fait par
+            <select value={params.get('userId') ?? ''} onChange={(e) => set('userId', e.target.value)} className={inputCls}>
+              <option value="">Tout le monde</option>
+              {data?.people.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.display_name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="col-span-2 grid gap-1.5 text-sm font-medium md:col-span-1">
+            État
+            <select value={params.get('state') ?? ''} onChange={(e) => set('state', e.target.value)} className={inputCls}>
+              {STATES.map(([v, l]) => (
+                <option key={v} value={v}>
+                  {l}
+                </option>
+              ))}
+            </select>
+          </label>
+        </form>
+      </Card>
+      <ErrorBox>{error}</ErrorBox>
+      {!data ? (
+        loading && <Spinner />
+      ) : data.rows.length === 0 ? (
+        <Card className="text-center text-sm text-muted">Aucun appel ne correspond à ces filtres.</Card>
+      ) : (
+        <div className={`grid grid-cols-[minmax(0,1fr)] gap-5 ${loading ? 'opacity-60' : ''}`} aria-busy={loading}>
+          <p className="text-sm text-muted" aria-live="polite">
+            {data.rows.length} appel{data.rows.length > 1 ? 's' : ''}
+            {data.truncated && ' (liste limitée : affinez les filtres)'}
+          </p>
+          {[...days.entries()].map(([day, rows]) => (
+            <section key={day} aria-labelledby={`d-${day}`}>
+              <h2 id={`d-${day}`} className="mb-2 text-sm font-semibold tracking-wide text-muted uppercase">
+                {new Date(`${day}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+              </h2>
+              <Card flush>
+                <ul className="divide-y divide-line">
+                  {rows.map((r) => (
+                    <li key={`${r.date}:${r.slot.id}`}>
+                      <Link
+                        to={callPath(schoolId, r.classId, r.date, r.slot.id)}
+                        className="flex min-h-14 items-center gap-3 px-4 py-3 hover:bg-surface"
+                        aria-label={`${r.className}, ${r.slot.name}, ${formatDate(r.date)} : voir le détail`}
+                      >
+                        <span className="min-w-0 flex-1">
+                          <span className="flex flex-wrap items-center gap-1.5">
+                            <span className="font-semibold">{r.className}</span>
+                            <span className="text-sm text-muted">· {r.slot.name}</span>
+                            {r.state === 'validated' && <Badge tone="success">Validé</Badge>}
+                            {r.state === 'corrected' && <Badge tone="info">Corrigé (version {r.version})</Badge>}
+                            {r.state === 'missing' && <Badge tone="danger">Non fait</Badge>}
+                          </span>
+                          <span className="block text-sm text-muted">
+                            {r.counts
+                              ? `${r.counts.present} présent${r.counts.present > 1 ? 's' : ''} · ${r.counts.absent} absent${r.counts.absent > 1 ? 's' : ''}${
+                                  r.counts.other ? ` · ${r.counts.other} autre${r.counts.other > 1 ? 's' : ''}` : ''
+                                } / ${r.expected} · validé à ${timeOf(r.validatedAt!)}${
+                                  r.state === 'corrected' ? `, corrigé le ${formatDate(r.updatedAt)} à ${timeOf(r.updatedAt!)}` : ''
+                                } · ${r.by}`
+                              : `${r.expected} élève${r.expected > 1 ? 's' : ''} attendu${r.expected > 1 ? 's' : ''}`}
+                          </span>
+                        </span>
+                        <ChevronRight className="size-5 shrink-0 text-muted" aria-hidden />
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            </section>
+          ))}
+        </div>
+      )}
+    </Shell>
+  )
+}

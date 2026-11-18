@@ -144,7 +144,7 @@ export default function ImportStudents() {
 
   return (
     <Shell title="Importer des élèves" subtitle={membership.schoolName}>
-      <Link to={`/ecole/${schoolId}`} className="mb-4 inline-flex min-h-11 items-center gap-1.5 text-sm font-semibold text-muted hover:text-ink">
+      <Link to={`/ecole/${schoolId}/classes`} className="mb-4 inline-flex min-h-11 items-center gap-1.5 text-sm font-semibold text-muted hover:text-ink">
         <ArrowLeft className="size-4" aria-hidden /> Toutes les classes
       </Link>
 
@@ -160,7 +160,7 @@ export default function ImportStudents() {
                   {result.classes > 0 && `, ${result.classes} classe${result.classes > 1 ? 's' : ''} créée${result.classes > 1 ? 's' : ''}`}.
                 </span>
                 <span className="flex gap-2">
-                  <Link to={`/ecole/${schoolId}`} className="inline-flex min-h-11 items-center rounded-xl bg-white px-4 text-sm font-semibold text-ink ring-1 ring-line">
+                  <Link to={`/ecole/${schoolId}/classes`} className="inline-flex min-h-11 items-center rounded-xl bg-white px-4 text-sm font-semibold text-ink ring-1 ring-line">
                     Voir les classes
                   </Link>
                   <Button

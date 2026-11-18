@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Check, ChevronDown, History, MoreHorizontal, Pencil, X } from 'lucide-react'
 import { Shell } from '../components/Shell'
+import { MessageList, ReminderNotice, type DirectionMessage } from '../components/DirectionMessages'
 import { Button, Card, ErrorBox, Spinner } from '../components/ui'
 import { api, ApiError, formatDate } from '../lib/api'
 import { STATUS_COLOR_CLASSES } from '../lib/schoolFormat'
@@ -28,6 +29,10 @@ interface CallData {
   noCallReason: string | null
   statuses: Status[]
   students: { id: string; firstName: string; lastName: string | null }[]
+  messages: DirectionMessage[]
+  /** Absences prévues : élève → motif. Prépositionné Absent, toujours « à vérifier ». */
+  plannedAbsences: Record<string, string>
+  remindedAt: string | null
   call: null | {
     version: number
     status: 'validated' | 'corrected'
@@ -75,6 +80,7 @@ function writeDraft(key: string, d: Draft | null) {
 
 export default function CallPage() {
   const { schoolId = '', classId = '', date = '', slotId = '' } = useParams()
+  const navigate = useNavigate()
   const path = `/api/schools/${schoolId}/classes/${classId}/calls/${date}/${slotId}`
   const draftKey = `appely:draft:${classId}:${date}:${slotId}`
 
@@ -101,7 +107,10 @@ export default function CallPage() {
         setData(d)
         const active = d.statuses.filter((s) => s.active)
         const present = active.find((s) => s.category === 'PRESENT')
-        const base = d.call ? d.call.entries : Object.fromEntries(d.students.map((s) => [s.id, present?.id ?? '']))
+        const absent = active.find((s) => s.category === 'ABSENT')
+        const base = d.call
+          ? d.call.entries
+          : Object.fromEntries(d.students.map((s) => [s.id, (d.plannedAbsences[s.id] && absent ? absent.id : present?.id) ?? '']))
         const draft = opts.keepDraft ? readDraft(draftKey) : null
         const ids = new Set(d.students.map((s) => s.id))
         // Brouillon restauré seulement s'il porte sur la même version et les mêmes élèves.
@@ -216,9 +225,20 @@ export default function CallPage() {
 
   return (
     <Shell title={`${data.class.name} · ${data.slot.name}`} subtitle={isToday ? 'Aujourd’hui' : formatDate(date)}>
-      <Link to="/" className="mb-3 inline-flex min-h-11 items-center gap-1.5 text-sm font-semibold text-muted hover:text-ink">
+      <button
+        type="button"
+        // Retour à la page d'origine (accueil, tableau de bord, historique), sinon à l'accueil.
+        onClick={() => ((window.history.state as { idx?: number } | null)?.idx ? navigate(-1) : navigate('/'))}
+        className="mb-3 inline-flex min-h-11 items-center gap-1.5 text-sm font-semibold text-muted hover:text-ink"
+      >
         <ArrowLeft className="size-4" aria-hidden /> Retour
-      </Link>
+      </button>
+      {(data.messages.length > 0 || (data.remindedAt && !data.call)) && (
+        <div className="mb-3 grid gap-2">
+          {data.remindedAt && !data.call && !data.noCallReason && <ReminderNotice at={data.remindedAt} />}
+          <MessageList messages={data.messages} />
+        </div>
+      )}
 
       {data.noCallReason ? (
         <Card className="text-center">
@@ -257,6 +277,7 @@ export default function CallPage() {
             <p className="text-sm text-muted">
               Touchez les élèves absents{directPicker ? ' (ou « ⋯ » pour choisir un état)' : ''}, puis validez. Les cartes en
               pointillés sont <strong>à vérifier</strong>.
+              {Object.keys(data.plannedAbsences).length > 0 && ' Les absences prévues sont déjà marquées « Absent » : vérifiez si l’élève est là.'}
             </p>
           )}
           {editing && <p className="text-sm font-medium text-primary-strong">Mode correction : touchez les élèves à modifier.</p>}
@@ -265,6 +286,7 @@ export default function CallPage() {
             {data.students.map((s) => {
               const st = statusById.get(entries[s.id])
               const unverified = !data.call && !touched.has(s.id)
+              const planned = !data.call ? data.plannedAbsences[s.id] : undefined
               const tone = st ? STATUS_COLOR_CLASSES[st.color] : 'bg-slate-300'
               return (
                 <li key={s.id} className="relative">
@@ -272,7 +294,7 @@ export default function CallPage() {
                     type="button"
                     onClick={() => tap(s.id)}
                     disabled={locked}
-                    aria-label={`${s.firstName} ${s.lastName ?? ''} : ${st?.label ?? '?'}${unverified ? ', à vérifier' : ''}${locked ? '' : '. Toucher pour changer.'}`}
+                    aria-label={`${s.firstName} ${s.lastName ?? ''} : ${st?.label ?? '?'}${planned ? `, absence prévue (${planned})` : ''}${unverified ? ', à vérifier' : ''}${locked ? '' : '. Toucher pour changer.'}`}
                     className={[
                       'flex min-h-16 w-full items-center gap-2.5 rounded-xl bg-white px-3 py-2 text-left ring-1 transition-colors disabled:cursor-default',
                       st?.category === 'ABSENT' ? 'bg-danger/8 ring-danger/50' : st?.category === 'AUTRE' ? 'ring-amber-300' : 'ring-success/35',
@@ -289,6 +311,11 @@ export default function CallPage() {
                         {s.lastName ? `${s.lastName} · ` : ''}
                         {st?.label}
                       </span>
+                      {planned && (
+                        <span className="block truncate text-xs font-semibold text-amber-800" title={planned}>
+                          Absence prévue
+                        </span>
+                      )}
                     </span>
                   </button>
                   {directPicker && !locked && (

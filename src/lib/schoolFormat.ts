@@ -34,3 +34,13 @@ export const todayIso = () => {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
+
+/** « 09:00 » → « 9 h 00 ». */
+export const formatDue = (t: string) => `${Number(t.slice(0, 2))} h ${t.slice(3)}`
+
+/** Heure locale « 09:12 » d'un horodatage serveur. */
+export const timeOf = (iso: string) => new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+
+/** « mardi 17 novembre » pour une date AAAA-MM-JJ. */
+export const dayLabel = (date: string) =>
+  new Date(`${date}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })
