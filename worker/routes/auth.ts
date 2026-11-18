@@ -58,7 +58,11 @@ export async function postLogin(env: Env, req: Request) {
     await recordFailure(env, keys)
     throw new HttpError(401, 'INVALID_CREDENTIALS', 'Adresse e-mail ou mot de passe incorrect.')
   }
-  await env.DB.prepare('DELETE FROM login_attempts WHERE key = ?').bind(keys[0]).run()
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM login_attempts WHERE key = ?').bind(keys[0]),
+    // Journal des accès (lot 6) : connexion réussie, sans adresse IP ni appareil (données minimisées).
+    await audit(env, { actor: user.id, action: 'auth.login', objectType: 'user', objectId: user.id }),
+  ])
   const { cookie } = await createSession(env, user.id)
   return json({ ok: true }, { headers: { 'set-cookie': cookie } })
 }

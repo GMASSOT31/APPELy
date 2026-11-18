@@ -5,10 +5,10 @@
   --font-sans: 'Inter Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
 
   --color-night: #182c59;
-  --color-primary: #536dff;
-  --color-primary-strong: #3f57e6;
+  --color-primary: #425cec; /* #536dff de la planche, assombri pour un contraste AA (texte blanc ≥ 4,5:1) */
+  --color-primary-strong: #3449cf;
   --color-success: #24b89a;
-  --color-success-ink: #137a65;
+  --color-success-ink: #11705d;
   --color-danger: #ff6b6b;
   --color-danger-ink: #c23a3a;
   --color-surface: #eef2ff;
@@ -44,5 +44,17 @@ body {
   *::after {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
+  }
+}
+
+/* Impression (registres, feuilles de répartition) : A4, fond blanc, sans éléments d'interface. */
+@page {
+  size: A4;
+  margin: 12mm;
+}
+@media print {
+  html,
+  body {
+    background: #fff;
   }
 }

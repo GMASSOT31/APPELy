@@ -66,7 +66,6 @@ export function CallDemo() {
               <button
                 type="button"
                 onClick={() => tap(e.studentId)}
-                aria-label={`${names.get(e.studentId)} : ${s.label}${e.prefilled ? ', à vérifier' : ''}. Toucher pour changer.`}
                 className={[
                   'flex min-h-14 w-full items-center gap-2 rounded-xl px-3 py-2 text-left transition-colors',
                   absent ? 'bg-danger/12 ring-1 ring-danger/50' : 'bg-success/10 ring-1 ring-success/40',
@@ -83,10 +82,11 @@ export function CallDemo() {
                   {absent ? <X className="size-3.5" strokeWidth={3} /> : <Check className="size-3.5" strokeWidth={3} />}
                 </span>
                 <span className="min-w-0">
-                  <span className="block truncate text-sm font-semibold">{names.get(e.studentId)}</span>
+                  <span className="block truncate text-sm font-semibold">{names.get(e.studentId)}</span>{' '}
                   <span className={['block text-xs', absent ? 'text-danger-ink' : 'text-success-ink'].join(' ')}>
                     {s.label}
                   </span>
+                  <span className="sr-only">{e.prefilled ? ', à vérifier' : ''}. Toucher pour changer.</span>
                 </span>
               </button>
             </li>

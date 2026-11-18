@@ -55,13 +55,24 @@ interface CallData {
     revisions: Revision[]
   }
 }
+/**
+ * Brouillon local (§10) : uniquement des identifiants (élève → état), jamais de nom ni de liste de classe.
+ * Effacé après envoi confirmé, à la déconnexion, et au bout de 12 h.
+ * `requestId` + `queued` : validation demandée mais pas encore accusée par le serveur ; elle est renvoyée
+ * avec la même clé d'idempotence au retour du réseau, ce qui exclut tout doublon.
+ */
 interface Draft {
   baseVersion: number
   entries: Record<string, string>
   touched: string[]
   remark: string
   reason: string
+  savedAt?: number
+  requestId?: string
+  queued?: boolean
 }
+const DRAFT_TTL_MS = 12 * 3600_000
+const contentKey = (entries: Record<string, string>, remark: string, reason: string) => JSON.stringify([entries, remark, reason])
 
 /** « Présent cantine » → « présents cantine » au pluriel (accord du premier mot). */
 function pluralLabel(label: string, n: number) {
@@ -75,7 +86,12 @@ const time = (iso: string) => new Date(iso).toLocaleTimeString('fr-FR', { hour: 
 function readDraft(key: string): Draft | null {
   try {
     const v = localStorage.getItem(key)
-    return v ? (JSON.parse(v) as Draft) : null
+    const d = v ? (JSON.parse(v) as Draft) : null
+    if (d && (!d.savedAt || Date.now() - d.savedAt > DRAFT_TTL_MS)) {
+      localStorage.removeItem(key)
+      return null
+    }
+    return d
   } catch {
     return null
   }
@@ -110,6 +126,10 @@ export default function CallPage() {
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [showHistory, setShowHistory] = useState(false)
   const requestIdRef = useRef<string | null>(null)
+  /** Contenu dont la validation attend l'accusé de réception du serveur (hors ligne). */
+  const queuedKeyRef = useRef<string | null>(null)
+  const [queued, setQueued] = useState(false)
+  const submitRef = useRef<() => void>(() => undefined)
 
   const load = useCallback(
     async (opts: { keepDraft: boolean } = { keepDraft: true }) => {
@@ -134,8 +154,16 @@ export default function CallPage() {
           setReason(draft.reason)
           setEditing(!!d.call)
           setRestored(true)
+          if (draft.queued && draft.requestId) {
+            // Validation demandée avant une coupure : on la renverra avec la même clé (pas de doublon).
+            requestIdRef.current = draft.requestId
+            queuedKeyRef.current = contentKey({ ...base, ...draft.entries }, draft.remark, draft.reason)
+            setQueued(true)
+          }
         } else {
           writeDraft(draftKey, null)
+          queuedKeyRef.current = null
+          setQueued(false)
           setEntries(base)
           setTouched(new Set())
           setRemark(d.call?.remark ?? '')
@@ -167,9 +195,36 @@ export default function CallPage() {
   // Brouillon local à chaque modification ; avertissement si l'on quitte avec un appel non transmis.
   useEffect(() => {
     if (!data || !dirty) return
-    writeDraft(draftKey, { baseVersion: data.call?.version ?? 0, entries, touched: [...touched], remark, reason })
-    requestIdRef.current = null // contenu modifié : nouvelle tentative
+    const same = queuedKeyRef.current === contentKey(entries, remark, reason)
+    if (!same) {
+      // Contenu modifié : la prochaine validation est une nouvelle tentative.
+      requestIdRef.current = null
+      queuedKeyRef.current = null
+      setQueued(false)
+    }
+    writeDraft(draftKey, {
+      baseVersion: data.call?.version ?? 0,
+      entries,
+      touched: [...touched],
+      remark,
+      reason,
+      savedAt: Date.now(),
+      ...(same && requestIdRef.current ? { requestId: requestIdRef.current, queued: true } : {}),
+    })
   }, [data, dirty, entries, touched, remark, reason, draftKey])
+  // Retour du réseau (ou brouillon en attente retrouvé) : envoi automatique, même clé d'idempotence.
+  useEffect(() => {
+    if (!queued) return
+    const retry = () => submitRef.current()
+    window.addEventListener('online', retry)
+    const first = window.setTimeout(() => navigator.onLine && retry(), 1500)
+    const every = window.setInterval(() => navigator.onLine && retry(), 20_000)
+    return () => {
+      window.clearTimeout(first)
+      window.clearInterval(every)
+      window.removeEventListener('online', retry)
+    }
+  }, [queued])
   useEffect(() => {
     if (!dirty) return
     const h = (e: BeforeUnloadEvent) => e.preventDefault()
@@ -203,6 +258,18 @@ export default function CallPage() {
     setSending(true)
     setError('')
     requestIdRef.current ??= crypto.randomUUID()
+    // Mémorisé avant l'envoi : si la réponse se perd, le renvoi portera la même clé.
+    queuedKeyRef.current = contentKey(entries, remark, reason)
+    writeDraft(draftKey, {
+      baseVersion: data.call?.version ?? 0,
+      entries,
+      touched: [...touched],
+      remark,
+      reason,
+      savedAt: Date.now(),
+      requestId: requestIdRef.current,
+      queued: true,
+    })
     try {
       await api(`${path}/validate`, {
         baseVersion: data.call?.version ?? 0,
@@ -213,20 +280,31 @@ export default function CallPage() {
       })
       writeDraft(draftKey, null)
       requestIdRef.current = null
-      setNotice(data.call ? 'Correction enregistrée.' : 'Appel validé et enregistré.')
+      queuedKeyRef.current = null
+      setQueued(false)
+      setRestored(false)
+      setNotice(data.call ? 'Correction enregistrée et synchronisée.' : 'Appel validé et synchronisé avec le serveur.')
       await load({ keepDraft: false })
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
-        setError(e.message)
+        queuedKeyRef.current = null
+        setQueued(false)
+        setError(`${e.message} Votre saisie n’a pas été transmise : voici la version enregistrée, corrigez-la si besoin.`)
         writeDraft(draftKey, null)
         await load({ keepDraft: false })
       } else if (e instanceof ApiError && e.code === 'NETWORK') {
-        setError('Non transmis : l’appel est gardé sur cet appareil. Vérifiez le réseau et appuyez de nouveau sur « Valider ».')
-      } else setError(e instanceof ApiError ? e.message : 'Erreur inattendue.')
+        setQueued(true) // bandeau « non transmis » + renvoi automatique au retour du réseau
+      } else {
+        queuedKeyRef.current = null
+        setQueued(false)
+        setError(e instanceof ApiError ? e.message : 'Erreur inattendue.')
+      }
     } finally {
       setSending(false)
     }
   }
+
+  submitRef.current = () => void submit()
 
   const counts = new Map<string, number>()
   for (const v of Object.values(entries)) counts.set(v, (counts.get(v) ?? 0) + 1)
@@ -302,7 +380,13 @@ export default function CallPage() {
             </div>
           )}
           {notice && !data.call && <p role="status">{notice}</p>}
-          {restored && dirty && (
+          {queued && (
+            <p className="rounded-xl bg-amber-50 px-4 py-2.5 text-sm text-amber-900 ring-1 ring-amber-300" role="status">
+              <strong>Enregistré sur cet appareil, non transmis.</strong> L’appel sera envoyé automatiquement dès le retour du réseau
+              (sans doublon). Gardez cette page ouverte ou revenez-y.
+            </p>
+          )}
+          {restored && dirty && !queued && (
             <p className="rounded-xl bg-amber-50 px-4 py-2.5 text-sm text-amber-800" role="status">
               Brouillon retrouvé : enregistré sur cet appareil, <strong>pas encore transmis</strong>.
             </p>
@@ -346,7 +430,6 @@ export default function CallPage() {
                     type="button"
                     onClick={() => tap(s.id)}
                     disabled={locked}
-                    aria-label={`${s.firstName} ${s.lastName ?? ''}${s.hostedFrom ? ` (accueilli, ${s.hostedFrom.name})` : ''} : ${st?.label ?? '?'}${planned ? `, absence prévue (${planned})` : ''}${unverified ? ', à vérifier' : ''}${locked ? '' : '. Toucher pour changer.'}`}
                     className={[
                       'flex min-h-16 w-full items-center gap-2.5 rounded-xl bg-white px-3 py-2 text-left ring-1 transition-colors disabled:cursor-default',
                       st?.category === 'ABSENT' ? 'bg-danger/8 ring-danger/50' : st?.category === 'AUTRE' ? 'ring-amber-300' : 'ring-success/35',
@@ -358,17 +441,24 @@ export default function CallPage() {
                       {st?.category === 'ABSENT' ? <X className="size-4" strokeWidth={3} /> : <Check className="size-4" strokeWidth={3} />}
                     </span>
                     <span className="min-w-0">
-                      <span className="block truncate font-semibold">{s.firstName}</span>
+                      <span className="block truncate font-semibold">{s.firstName}</span>{' '}
                       <span className="block truncate text-xs text-muted">
                         {s.lastName ? `${s.lastName} · ` : ''}
                         {st?.label}
                       </span>
-                      {s.pending && <span className="block truncate text-xs font-semibold text-primary-strong">Nouvel élève accueilli</span>}
+                      {s.pending && <span className="block truncate text-xs font-semibold text-primary-strong"> Nouvel élève accueilli</span>}
                       {planned && (
                         <span className="block truncate text-xs font-semibold text-amber-800" title={planned}>
-                          Absence prévue
+                          {' '}
+                          Absence prévue<span className="sr-only"> ({planned})</span>
                         </span>
                       )}
+                      {/* Nom accessible = texte visible + compléments pour les lecteurs d'écran (WCAG 2.5.3). */}
+                      <span className="sr-only">
+                        {s.hostedFrom ? `, accueilli de ${s.hostedFrom.name}` : ''}
+                        {unverified ? ', à vérifier' : ''}
+                        {locked ? '' : '. Toucher pour changer.'}
+                      </span>
                     </span>
                   </button>
                   {directPicker && !locked && (

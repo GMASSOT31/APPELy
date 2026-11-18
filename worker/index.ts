@@ -46,6 +46,7 @@ import {
   prepareDistribution,
   updateDistribution,
 } from './routes/distributions'
+import { exportHistory } from './routes/exports'
 
 type Handler = (env: Env, req: Request, params: string[], origin: string) => Promise<Response>
 
@@ -111,6 +112,8 @@ const routes: [string, RegExp, Handler][] = [
   ['POST', new RegExp(`^/api/schools/${ID}/absences$`), (env, req, [s]) => createAbsence(env, req, s)],
   ['POST', new RegExp(`^/api/schools/${ID}/absences/${ID}/cancel$`), (env, req, [s, a]) => cancelAbsence(env, req, s, a)],
   ['GET', new RegExp(`^/api/schools/${ID}/history$`), (env, req, [s]) => getHistory(env, req, s)],
+  // Lot 6 : exports de l'historique (CSV, XLSX, page imprimable)
+  ['GET', new RegExp(`^/api/schools/${ID}/history/export$`), (env, req, [s]) => exportHistory(env, req, s)],
   // Lot 5 : répartitions temporaires
   ['GET', new RegExp(`^/api/schools/${ID}/distributions$`), (env, req, [s]) => listDistributions(env, req, s)],
   ['GET', new RegExp(`^/api/schools/${ID}/distributions/prepare$`), (env, req, [s]) => prepareDistribution(env, req, s)],
@@ -135,14 +138,27 @@ export async function handleApi(req: Request, env: Env): Promise<Response> {
   }
 }
 
+/**
+ * En-têtes de sécurité des réponses d'API (lot 6). Les pages et fichiers statiques reçoivent les leurs
+ * via `public/_headers` (CSP, HSTS, etc.).
+ */
+export function withApiHeaders(res: Response): Response {
+  const h = res.headers
+  h.set('x-content-type-options', 'nosniff')
+  h.set('referrer-policy', 'no-referrer')
+  h.set('content-security-policy', "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
+  h.set('x-frame-options', 'DENY')
+  h.set('cross-origin-resource-policy', 'same-origin')
+  h.set('strict-transport-security', 'max-age=31536000; includeSubDomains')
+  if (!h.has('cache-control')) h.set('cache-control', 'no-store')
+  return res
+}
+
 export default {
   async fetch(req: Request, env: Env & { ASSETS: Fetcher }): Promise<Response> {
     const url = new URL(req.url)
     if (url.pathname.startsWith('/api/')) {
-      const res = await handleApi(req, env)
-      res.headers.set('x-content-type-options', 'nosniff')
-      res.headers.set('referrer-policy', 'no-referrer')
-      return res
+      return withApiHeaders(await handleApi(req, env))
     }
     return env.ASSETS.fetch(req)
   },

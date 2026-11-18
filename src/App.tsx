@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Spinner } from './components/ui'
+import Offline from './pages/Offline'
 import { homePathFor, SessionProvider, useSession } from './lib/session'
 import Admin from './pages/Admin'
 import Invitation from './pages/Invitation'
@@ -19,19 +20,22 @@ import Dashboard from './pages/Dashboard'
 import Messages from './pages/Messages'
 import Absences from './pages/Absences'
 import HistoryPage from './pages/History'
+import HistoryPrint from './pages/HistoryPrint'
 import Distributions from './pages/Distributions'
 import DistributionEditor from './pages/DistributionEditor'
 import DistributionDetail from './pages/DistributionDetail'
 
 function Home() {
-  const { me, loading } = useSession()
+  const { me, loading, offline } = useSession()
   if (loading) return <Spinner />
+  if (offline && !me) return <Offline />
   return me ? <Navigate to={homePathFor(me)} replace /> : <Landing />
 }
 
 function Protected({ children }: { children: ReactNode }) {
-  const { me, loading } = useSession()
+  const { me, loading, offline } = useSession()
   if (loading) return <Spinner />
+  if (offline && !me) return <Offline />
   return me ? children : <Navigate to="/connexion" replace />
 }
 
@@ -60,6 +64,7 @@ export default function App() {
           <Route path="/ecole/:schoolId/messages" element={<Protected><Messages /></Protected>} />
           <Route path="/ecole/:schoolId/absences" element={<Protected><Absences /></Protected>} />
           <Route path="/ecole/:schoolId/historique" element={<Protected><HistoryPage /></Protected>} />
+          <Route path="/ecole/:schoolId/historique/imprimer" element={<Protected><HistoryPrint /></Protected>} />
           <Route path="/ecole/:schoolId/equipe" element={<Protected><SchoolTeam /></Protected>} />
           <Route path="/ecole/:schoolId/parametres" element={<Protected><SchoolSettings /></Protected>} />
           <Route path="/ecole/:schoolId/import" element={<Protected><ImportStudents /></Protected>} />

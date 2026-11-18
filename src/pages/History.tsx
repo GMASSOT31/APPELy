@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight, FileSpreadsheet, FileText, Printer } from 'lucide-react'
 import { Shell } from '../components/Shell'
 import { SchoolNav } from '../components/SchoolNav'
 import { Badge, Card, ErrorBox, Spinner } from '../components/ui'
@@ -141,6 +141,7 @@ export default function HistoryPage() {
           </label>
         </form>
       </Card>
+      <ExportCard schoolId={schoolId} query={query} disabled={!data || data.rows.length === 0} />
       <ErrorBox>{error}</ErrorBox>
       {!data ? (
         loading && <Spinner />
@@ -164,7 +165,6 @@ export default function HistoryPage() {
                       <Link
                         to={callPath(schoolId, r.classId, r.date, r.slot.id)}
                         className="flex min-h-14 items-center gap-3 px-4 py-3 hover:bg-surface"
-                        aria-label={`${r.className}, ${r.slot.name}, ${formatDate(r.date)} : voir le détail`}
                       >
                         <span className="min-w-0 flex-1">
                           <span className="flex flex-wrap items-center gap-1.5">
@@ -193,6 +193,7 @@ export default function HistoryPage() {
                               : `${r.expected} élève${r.expected > 1 ? 's' : ''} attendu${r.expected > 1 ? 's' : ''}`}
                           </span>
                         </span>
+                        <span className="sr-only">, {formatDate(r.date)} : voir le détail</span>
                         <ChevronRight className="size-5 shrink-0 text-muted" aria-hidden />
                       </Link>
                     </li>
@@ -204,5 +205,49 @@ export default function HistoryPage() {
         </div>
       )}
     </Shell>
+  )
+}
+
+const exportBtn =
+  'inline-flex min-h-11 items-center gap-2 rounded-xl bg-white px-4 text-sm font-semibold text-ink ring-1 ring-line hover:bg-surface focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none'
+
+/**
+ * Exports (§9, lot 6) : page imprimable (PDF via « Imprimer »), tableur Excel et CSV, avec les filtres affichés.
+ * Les fichiers sont servis uniquement à la direction connectée (jamais de lien public) et journalisés.
+ */
+function ExportCard({ schoolId, query, disabled }: { schoolId: string; query: string; disabled: boolean }) {
+  const [detail, setDetail] = useState(false)
+  const q = new URLSearchParams(query)
+  if (detail) q.set('detail', '1')
+  const file = (format: 'csv' | 'xlsx') => {
+    q.set('format', format)
+    return `/api/schools/${schoolId}/history/export?${q}`
+  }
+  const printQuery = new URLSearchParams(q)
+  printQuery.delete('format')
+  return (
+    <Card className="mb-4 print:hidden">
+      <h2 className="text-base font-semibold">Exporter cette liste</h2>
+      <p className="mt-1 text-sm text-muted">Mêmes filtres que ci-dessus, avec la légende des états. Fichiers réservés à la direction : ne les transmettez pas à des listes de diffusion.</p>
+      <label className="mt-3 flex min-h-11 items-center gap-3 text-sm">
+        <input type="checkbox" checked={detail} onChange={(e) => setDetail(e.target.checked)} className="size-5 accent-primary" />
+        Inclure le détail par élève (noms et états)
+      </label>
+      {disabled ? (
+        <p className="mt-2 text-sm text-muted">Rien à exporter pour ces filtres.</p>
+      ) : (
+        <div className="mt-2 flex flex-wrap gap-2">
+          <Link to={`/ecole/${schoolId}/historique/imprimer?${printQuery}`} className={exportBtn}>
+            <Printer className="size-4" aria-hidden /> Imprimer ou PDF
+          </Link>
+          <a href={file('xlsx')} download className={exportBtn}>
+            <FileSpreadsheet className="size-4" aria-hidden /> Tableur Excel (.xlsx)
+          </a>
+          <a href={file('csv')} download className={exportBtn}>
+            <FileText className="size-4" aria-hidden /> Fichier CSV
+          </a>
+        </div>
+      )}
+    </Card>
   )
 }

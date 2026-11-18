@@ -26,6 +26,12 @@ export class Client {
     if (set) this.cookie = set.split(';')[0]
     return { status: res.status, data: (await res.json()) as any }
   }
+  /** Réponse brute (fichiers d'export). */
+  async raw(path: string, headers: Record<string, string> = {}) {
+    const h: Record<string, string> = { 'cf-connecting-ip': this.ip, ...headers }
+    if (this.cookie) h.cookie = this.cookie
+    return handleApi(new Request(ORIGIN + path, { headers: h }), this.env)
+  }
   get = (p: string) => this.call('GET', p)
   post = (p: string, b: unknown = {}) => this.call('POST', p, b)
 }

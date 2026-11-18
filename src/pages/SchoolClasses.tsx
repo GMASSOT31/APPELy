@@ -74,7 +74,7 @@ export default function SchoolClasses() {
               <h2 id={`lvl-${level}`} className="mb-2 text-sm font-semibold tracking-wide text-muted uppercase">
                 {level}
               </h2>
-              <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              <ul className="grid grid-cols-[minmax(0,1fr)] gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {classes.map((c) => (
                   <li key={c.id}>
                     <Link

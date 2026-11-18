@@ -1,6 +1,6 @@
 # Plan du modèle de données (Cloudflare D1 / SQLite)
 
-Implémenté : lot 1 (`worker/migrations/0001_acces_ecoles.ts` : schools, users, memberships, invitations, sessions, login_attempts, audit_events) et lot 2 (`0002_classes_eleves.ts` : school_closures, classes, teacher_class_assignments, students, student_schedules, call_slots, attendance_statuses, import_jobs). Lot 3 (`0003_appels.ts` : attendance_calls, attendance_entries, attendance_revisions). Lot 4 (`0004_direction.ts` : direction_messages, call_reminders, planned_absences). Lot 5 (`0005_repartitions.ts` : distribution_plans, distribution_assignments, distribution_changes, distribution_notices, colonne attendance_entries.hosted_from_class_id).
+Implémenté : lot 1 (`worker/migrations/0001_acces_ecoles.ts` : schools, users, memberships, invitations, sessions, login_attempts, audit_events) et lot 2 (`0002_classes_eleves.ts` : school_closures, classes, teacher_class_assignments, students, student_schedules, call_slots, attendance_statuses, import_jobs). Lot 3 (`0003_appels.ts` : attendance_calls, attendance_entries, attendance_revisions). Lot 4 (`0004_direction.ts` : direction_messages, call_reminders, planned_absences). Lot 5 (`0005_repartitions.ts` : distribution_plans, distribution_assignments, distribution_changes, distribution_notices, colonne attendance_entries.hosted_from_class_id). Lot 6 : aucune nouvelle table — les exports sont générés à la volée (jamais stockés) et tracés dans `audit_events` (`history.exported`), comme les connexions (`auth.login`).
 
 Repris du cahier des charges §13, avec les contraintes à garantir côté base.
 
@@ -24,7 +24,7 @@ Repris du cahier des charges §13, avec les contraintes à garantir côté base.
 | call_reminders | school_id, class_id, slot_id, slot_date, sent_by, sent_at | relance d'un appel du jour non validé (5 min mini entre deux) |
 | planned_absences | school_id, student_id, start_date, end_date, half_days, reason, created_by, cancelled_at | half_days ∈ day / am / pm ; motif pris dans une liste fermée ; annulation au lieu de suppression |
 | audit_events | actor, school_id, action, object, before/after minimal, timestamp serveur | append-only |
-| import_jobs / export_jobs | school_id, user_id, kind, result, timestamp, deletion_state | |
+| import_jobs | school_id, user_id, kind, result, timestamp, deletion_state | export_jobs non créée : export à la volée + audit_events |
 
 ## Sécurité (équivalent RLS, appliqué dans le Worker)
 
@@ -34,3 +34,6 @@ Repris du cahier des charges §13, avec les contraintes à garantir côté base.
 - Superadmin : métadonnées des écoles uniquement, pas les noms d’élèves par défaut.
 - Validation d’appel et répartition via fonctions serveur transactionnelles avec clé d’idempotence.
 - Tests négatifs obligatoires : école A ne lit/écrit jamais école B ; enseignant hors classe refusé.
+- Exports (lot 6) : direction de l’école seulement, session obligatoire, `no-store`, sans nom d’élève par défaut, audités.
+- Stockage sur l’appareil : brouillon d’appel (identifiants seulement, 12 h, effacé après envoi et à la déconnexion),
+  adresse du dernier compte. Le service worker ne met jamais en cache `/api/`.

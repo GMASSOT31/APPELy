@@ -213,7 +213,7 @@ export default function Dashboard() {
                   tab === t.id ? 'bg-primary text-white' : 'text-muted hover:bg-surface hover:text-ink'
                 }`}
               >
-                {t.label} <span className="font-normal opacity-80">({counts[t.id]})</span>
+                {t.label} <span className="font-normal">({counts[t.id]})</span>
               </button>
             ))}
           </div>

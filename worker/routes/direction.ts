@@ -17,16 +17,16 @@ import {
 } from '../../src/domain/direction'
 
 /** Tableau de bord, messages, relances et historique : réservés à la direction de l'école. */
-async function direction(env: Env, req: Request, schoolId: string) {
+export async function direction(env: Env, req: Request, schoolId: string) {
   const u = await requireUser(env, req)
   await requireSchoolRole(env, u, schoolId, ['direction'])
   return u
 }
 
 async function schoolInfo(env: Env, schoolId: string) {
-  const s = await env.DB.prepare('SELECT closed_weekdays, timezone FROM schools WHERE id = ?')
+  const s = await env.DB.prepare('SELECT name, closed_weekdays, timezone FROM schools WHERE id = ?')
     .bind(schoolId)
-    .first<{ closed_weekdays: number; timezone: string }>()
+    .first<{ name: string; closed_weekdays: number; timezone: string }>()
   if (!s) throw notFound()
   return s
 }
@@ -437,9 +437,27 @@ const HISTORY_MAX_ROWS = 500
  */
 export async function getHistory(env: Env, req: Request, schoolId: string) {
   await direction(env, req, schoolId)
+  const h = await buildHistory(env, schoolId, new URL(req.url).searchParams)
+  return json({
+    from: h.from,
+    to: h.to,
+    today: h.today,
+    truncated: h.rows.length > HISTORY_MAX_ROWS,
+    rows: h.rows.slice(0, HISTORY_MAX_ROWS).map((r) => ({ ...r, levels: undefined, callId: undefined })),
+    classes: h.classes,
+    people: h.people,
+  })
+}
+
+export type HistoryRow = Awaited<ReturnType<typeof buildHistory>>['rows'][number]
+
+/**
+ * Calcul de l'historique filtré (sans contrôle d'accès : l'appelant a déjà vérifié le rôle Direction).
+ * Partagé par l'écran Historique et les exports (lot 6).
+ */
+export async function buildHistory(env: Env, schoolId: string, p: URLSearchParams) {
   const school = await schoolInfo(env, schoolId)
   const today = schoolToday(school.timezone)
-  const p = new URL(req.url).searchParams
   let to = p.get('to') || today
   const from = p.get('from') || addDays(to > today ? today : to, -6)
   if (!isValidDate(from) || !isValidDate(to)) throw badRequest('INVALID_DATE', 'Date invalide.')
@@ -486,6 +504,7 @@ export async function getHistory(env: Env, req: Request, schoolId: string) {
   )
 
   type Row = {
+    callId: string | null
     date: string
     classId: string
     className: string
@@ -509,6 +528,7 @@ export async function getHistory(env: Env, req: Request, schoolId: string) {
     if (userFilter && !(c.actors ?? '').split(',').includes(userFilter) && c.first_by !== userFilter) continue
     const dist = distributionFor(assignments, expected, classNames, cls.id, c.slot_date, slot.half_day)
     rows.push({
+      callId: c.id,
       hosted: c.hosted ? { count: c.hosted, from: dist.hosted?.from ?? [] } : null,
       distribution: dist.distribution,
       date: c.slot_date,
@@ -543,6 +563,7 @@ export async function getHistory(env: Env, req: Request, schoolId: string) {
         const isDistributed = n === 0 && !!dist.distribution
         if (n === 0 && !isDistributed) continue
         rows.push({
+          callId: null,
           hosted: dist.hosted,
           distribution: dist.distribution,
           date: d,
@@ -575,17 +596,18 @@ export async function getHistory(env: Env, req: Request, schoolId: string) {
         a.className.localeCompare(b.className, 'fr', { numeric: true }) ||
         a.slot.halfDay.localeCompare(b.slot.halfDay),
     )
-  return json({
+  return {
     from,
     to,
     today,
-    truncated: filtered.length > HISTORY_MAX_ROWS,
-    rows: filtered.slice(0, HISTORY_MAX_ROWS).map((r) => ({ ...r, levels: undefined })),
+    schoolName: school.name,
+    timezone: school.timezone,
+    rows: filtered,
     classes: [...classes.values()]
       .filter((c) => !c.archived_at)
       .sort((a, b) => levelRank(a.levelList) - levelRank(b.levelList) || a.name.localeCompare(b.name, 'fr', { numeric: true }))
       .map((c) => ({ id: c.id, name: c.name })),
-    people: peopleR.results,
-  })
+    people: peopleR.results as { id: string; display_name: string }[],
+  }
 }
 

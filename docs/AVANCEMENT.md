@@ -8,7 +8,7 @@
 | 3 / Appel enseignant | Grille, compteurs, validation, persistance, corrections | **Fait** (voir ci-dessous) |
 | 4 / Direction | Dashboard temps réel, historique, messages, rappels | **Fait** (voir ci-dessous) |
 | 5 / Répartitions | Algorithme, édition, affectations, synchronisation | **Fait** (voir ci-dessous) |
-| 6 / Finalisation | Exports, PWA, audit sécurité, a11y | À faire |
+| 6 / Finalisation | Exports, PWA, audit sécurité, a11y | **Fait** (voir ci-dessous) |
 | 7 / Pilote | Scénarios E2E, docs, déploiement de test | À faire |
 
 ## Lot 0 — vérifié
@@ -176,6 +176,65 @@ P8 (modification propagée, historisée, classes informées, pas de double prés
 - Un élève « absent connu » compte comme confirmé (absence résolue) dans la couverture, sans ligne d’appel.
 - La création et la gestion des répartitions sont réservées à la direction.
 
+## Lot 6 — vérifié
+
+Tests : `tests/exports.test.ts` (12 tests : CSV, XLSX relu par un tableur, page imprimable, journal d’audit, refus enseignant /
+autre école / visiteur, en-têtes de sécurité, neutralisation des formules), soit 146 tests au total ; parcours navigateur sur
+`wrangler dev` (83 contrôles) : en-têtes, PWA, exports téléchargés et rouverts par openpyxl et LibreOffice, PDF généré par
+l’impression, appel hors ligne puis reprise sans doublon, appel au clavier seul, audit axe-core WCAG 2.1 AA sur 16 écrans,
+largeurs 320 et 360 px sans défilement horizontal, aucune violation CSP.
+
+- **Exports de l’historique** (direction uniquement, onglet Historique → « Exporter cette liste », mêmes filtres que la liste) :
+  - « Imprimer ou PDF » : registre prêt à imprimer (A4) avec école, période, filtres, légende des statuts et des états,
+    tableau par jour (classe, créneau, statut, effectifs, validation) et, au choix, le détail par élève ;
+    le PDF s’obtient par « Enregistrer au format PDF » dans la fenêtre d’impression.
+  - « Tableur Excel (.xlsx) » : feuilles « Appels », « Détail par élève » (si demandé) et « Légende ».
+  - « Fichier CSV » : séparateur `;` et BOM UTF-8 (s’ouvre directement dans Excel en français).
+  - Par défaut **sans nom d’élève** ; le détail nominatif est une case à cocher. Cellules toujours écrites en texte
+    (formules neutralisées, ex. `=HYPERLINK(...)` dans un prénom). Fichiers générés à la volée, jamais stockés,
+    `Cache-Control: no-store`, **jamais de lien public** (session obligatoire), chaque export inscrit au journal d’audit
+    (`history.exported` : format, période, filtres, nombre de lignes). 62 jours max, 25 000 lignes de détail max.
+- **PWA installable** : `manifest.webmanifest` (nom, couleurs, mode autonome), icônes 192/512 + icône « maskable » + icône
+  Apple, écran de lancement (logo affiché avant le chargement), balises iOS.
+- **Service worker prudent** (`public/sw.js`) : ne met en cache que la coquille de l’application (HTML, scripts, styles,
+  icônes) ; **aucune réponse `/api/`** n’est jamais mise en cache. Sans réseau à l’ouverture : écran « Pas de connexion »,
+  la session est revérifiée automatiquement au retour du réseau.
+- **Brouillon hors ligne (§10, P10)** : pendant un appel, si le réseau tombe au moment de valider, le bandeau affiche
+  « Enregistré sur cet appareil, non transmis » ; l’envoi repart seul au retour du réseau (et toutes les 20 s), avec la
+  **même clé d’idempotence** : impossible de créer un doublon, même si la première réponse s’était perdue. « Synchronisé »
+  n’apparaît qu’après la réponse du serveur. Conflit (un autre appareil a validé entre-temps) : la saisie locale n’est pas
+  appliquée, la version enregistrée est affichée avec un message explicite. Le brouillon ne contient que des identifiants
+  (aucun nom), expire au bout de 12 h et est effacé après envoi et à la déconnexion.
+- **Audit de sécurité** :
+  - En-têtes des pages (`public/_headers`) : CSP stricte (`script-src 'self'`, `style-src 'self'`, aucun script en ligne,
+    `frame-ancestors 'none'`), HSTS, `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`,
+    `Permissions-Policy` (caméra, micro, géolocalisation… désactivés), `Cross-Origin-Opener-Policy`.
+  - Réponses d’API : CSP `default-src 'none'`, `no-store`, `DENY`, `nosniff`, HSTS (`withApiHeaders`).
+  - Contrôles d’accès relus route par route : chaque route d’école passe par `requireSchoolRole` (directement ou via
+    `direction` / `requireCallAccess` / `absenceAccess`) ; tests négatifs inter-écoles pour l’export.
+  - Journal d’audit complété : connexions réussies (`auth.login`, sans IP) et exports ; validations, corrections et actions
+    sensibles étaient déjà tracées. Les échecs de connexion restent limités (5 / 15 min).
+  - Données minimisées : exports sans nom par défaut, brouillon sans nom, cache hors ligne sans données, aucun outil
+    d’analyse ni ressource externe (polices servies par l’application).
+- **Audit d’accessibilité** (axe-core, WCAG 2.1 A/AA, 16 écrans) : corrigé — contraste du bleu principal (texte blanc 4,2:1 →
+  5,3:1, voir écarts), vert foncé des bandeaux, compteur d’onglet du tableau de bord, noms accessibles des vignettes élèves
+  et des lignes d’historique (le texte visible fait partie du nom lu), zone de tableau défilante accessible au clavier,
+  débordement de la liste des classes à 320 px. Appel complet au clavier vérifié (Tab jusqu’à l’élève, Entrée pour changer
+  l’état, focus visible, Tab jusqu’à « Valider l’appel », Entrée).
+- `README.md` : section « Limitations connues ».
+
+### Choix faits en autonomie (lot 6)
+
+- **PDF** = impression du navigateur d’une page dédiée plutôt qu’un générateur PDF côté serveur : aucune dépendance,
+  accents et mise en page fiables, aucun fichier stocké.
+- « Utilisateurs habilités » pour les exports = direction de l’école (les enseignants n’ont pas l’historique global).
+- **Mode hors ligne nominatif non activé** (dépendance de conformité du §10) : aucune liste d’élèves n’est gardée sur
+  l’appareil ; on ne peut donc pas *ouvrir* un appel sans réseau. Seul un appel déjà affiché peut être terminé hors ligne
+  (brouillon d’identifiants). L’activer demandera une option par école, un stockage chiffré à durée limitée et la validation
+  du responsable de traitement (appareils partagés).
+- Couleur principale assombrie de #536dff à #425cec (contraste AA) : la planche reste reconnaissable, l’accessibilité prime (§11.3).
+- Pas d’image de démarrage iOS dédiée (une dizaine de tailles) : l’écran de lancement HTML s’affiche à la place.
+
 ## Écarts au cahier des charges (assumés)
 
 - **Cloudflare D1 au lieu de Supabase** (quota de projets Supabase atteint). D1 n'a pas de RLS : le
@@ -191,6 +250,7 @@ P8 (modification propagée, historisée, classes informées, pas de double prés
 
 - Actualisation par sondage (30 s) plutôt que temps réel par connexion permanente : plus simple et compatible
   avec l’offre gratuite Cloudflare ; suffisant pour le suivi du matin.
-- Exports PDF/CSV de l’historique : lot 6 (le filtre « répartition » est fait au lot 5).
-- Mode hors ligne complet : lot 6 (aujourd'hui, brouillon local seulement ; la validation exige le réseau).
+- Mode hors ligne nominatif (consulter la liste d’élèves sans réseau) : volontairement désactivé, voir lot 6 et README.
+- Notifications push : non faites (facultatives au §10) ; notifications internes seulement.
+- Politique de conservation et purge des archives (§9) : à définir avec le responsable de traitement avant usage réel.
 - Localisation des données D1 : à vérifier dans le tableau de bord Cloudflare (juridiction UE souhaitée).
