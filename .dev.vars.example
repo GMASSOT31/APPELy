@@ -1,0 +1,4 @@
+# Exemple de configuration locale (aucun secret réel ici).
+# Copier ce fichier en `.dev.vars` (ignoré par git) pour `npx wrangler dev`.
+# En production, ce code est une « variable secrète » du Worker dans Cloudflare, jamais dans le dépôt.
+ADMIN_SETUP_CODE="remplacez-par-un-code-local"

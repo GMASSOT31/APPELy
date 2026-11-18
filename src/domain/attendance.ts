@@ -93,3 +93,19 @@ export function canValidate(entries: CallEntry[], statuses: AttendanceStatus[]):
   if (t.recorded !== t.expected) return { ok: false, reason: 'INCONSISTENT_TOTALS' }
   return { ok: true }
 }
+
+/**
+ * Lot 7 : appel à ouvrir directement à l'arrivée de l'enseignant. S'il n'y a qu'un appel à faire, c'est lui ;
+ * s'il y en a plusieurs (matin et après-midi), celui de la demi-journée en cours s'il est seul. Sinon, la liste.
+ */
+export function callToOpen<T extends { halfDay: 'am' | 'pm' }>(pending: T[], currentHalf: 'am' | 'pm'): T | null {
+  if (pending.length === 1) return pending[0]
+  const now = pending.filter((p) => p.halfDay === currentHalf)
+  return now.length === 1 ? now[0] : null
+}
+
+/** Demi-journée en cours à Paris : matin avant midi. */
+export function parisHalfDay(now = new Date()): 'am' | 'pm' {
+  const h = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Paris', hour: '2-digit', hourCycle: 'h23' }).format(now))
+  return h < 12 ? 'am' : 'pm'
+}

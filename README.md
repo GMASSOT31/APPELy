@@ -16,8 +16,19 @@ npm test         # tests unitaires et d’interface
 npm run build    # build de production dans dist/
 ```
 
-Serveur local complet (API + base D1 locale) : créer `.dev.vars` avec
-`ADMIN_SETUP_CODE="un-code-local"`, puis `npx wrangler dev`, et ouvrir `/installation`.
+Serveur local complet (API + base D1 locale) : `cp .dev.vars.example .dev.vars` (choisir un code local),
+`npm run build`, puis `npx wrangler dev`, et ouvrir `/installation`.
+
+```bash
+npm run e2e      # parcours P1 à P12 dans un navigateur automatisé (voir e2e/README.md)
+npm run demo     # crée l'école de démonstration sur un déploiement (voir docs/DEPLOIEMENT.md)
+```
+
+## Documentation
+
+- [Guide utilisateur](docs/GUIDE-UTILISATEUR.md) (Enseignant, Direction, Admin)
+- [Guide de déploiement](docs/DEPLOIEMENT.md) (Cloudflare Workers + D1, secret, quotas, sauvegardes)
+- [Avancement et Definition of Done](docs/AVANCEMENT.md), [plan de données](docs/SCHEMA.md)
 
 ## Déploiement
 
@@ -26,13 +37,15 @@ puis `wrangler deploy` (voir `wrangler.jsonc`). Les tables de la base D1 `appely
 créées ou mises à jour automatiquement au premier appel d'API (`worker/lib/migrate.ts`).
 
 Variable secrète à définir dans Cloudflare (Worker `appely` → Paramètres → Variables et secrets) :
-`ADMIN_SETUP_CODE`, code utilisé une seule fois sur `/installation` pour créer le superadmin.
+`ADMIN_SETUP_CODE`, code utilisé une seule fois sur `/installation` pour créer le superadmin. Détails :
+[`docs/DEPLOIEMENT.md`](docs/DEPLOIEMENT.md). Pour essayer : page **Écoles → Créer l’école de démonstration**
+(données fictives, identifiants affichés une seule fois).
 
 ## Stack
 
 - Front : React + TypeScript + Vite · Tailwind CSS · Lucide · React Router
 - API : Cloudflare Worker (`worker/`) · base Cloudflare D1 (SQLite)
-- Tests : Vitest + Testing Library · tests d'API sur D1 locale (`tests/`)
+- Tests : Vitest + Testing Library · tests d'API sur D1 locale (`tests/`) · parcours Playwright + axe-core (`e2e/`)
 
 ## Installer l’application (PWA)
 
@@ -57,6 +70,9 @@ menu du navigateur). Sur ordinateur : icône d’installation dans la barre d’
 - **Hébergement** : Cloudflare (Workers + D1) ; la localisation UE des données est à vérifier/configurer dans Cloudflare.
 - **Accessibilité** : audit automatique WCAG 2.1 AA (axe-core) et parcours clavier vérifiés ; un audit RGAA complet avec
   lecteurs d’écran réels (VoiceOver, NVDA, TalkBack) reste à faire avec des utilisateurs.
+- **École de démonstration** : ses comptes partagent un mot de passe commun (comptes fictifs uniquement) ; elle est
+  ouverte du lundi au samedi pour pouvoir être essayée chaque jour.
+- **Parcours E2E** : non lancés par la CI GitHub (navigateur requis) ; à lancer avec `npm run e2e` (pas le dimanche).
 - **Couleur principale** légèrement assombrie par rapport à la planche pour respecter les contrastes.
 
 ## Avancement

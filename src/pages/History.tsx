@@ -91,7 +91,7 @@ export default function HistoryPage() {
     <Shell title="Historique des appels">
       <SchoolNav schoolId={schoolId} />
       <Card className="mb-4">
-        <form className="grid grid-cols-2 gap-3 md:grid-cols-6" onSubmit={(e) => e.preventDefault()} aria-label="Filtres">
+        <form className="grid grid-cols-1 gap-3 min-[400px]:grid-cols-2 md:grid-cols-6" onSubmit={(e) => e.preventDefault()} aria-label="Filtres">
           <label className="grid gap-1.5 text-sm font-medium">
             Du
             <input type="date" value={params.get('from') ?? data?.from ?? ''} max={data?.today} onChange={(e) => set('from', e.target.value)} className={inputCls} />

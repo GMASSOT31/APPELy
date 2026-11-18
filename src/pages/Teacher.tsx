@@ -7,6 +7,7 @@ import { timeOf } from '../lib/schoolFormat'
 import { Card, Spinner } from '../components/ui'
 import { api, formatDate, ROLE_LABELS } from '../lib/api'
 import { callPath } from '../lib/school'
+import { callToOpen, parisHalfDay } from '../domain/attendance'
 import { useSession } from '../lib/session'
 
 interface DaySlot {
@@ -35,8 +36,8 @@ const AUTO_OPEN_KEY = 'appely:auto-opened'
 const REFRESH_MS = 60_000
 
 /**
- * Accueil enseignant : les appels du jour. S'il n'y a qu'un seul appel à faire, il s'ouvre
- * directement (une fois par jour et par session), pour un appel en quelques secondes.
+ * Accueil enseignant : les appels du jour. S'il n'y a qu'un seul appel à faire (ou un seul pour la demi-journée
+ * en cours), il s'ouvre directement (une fois par jour et par session), pour un appel en quelques secondes.
  */
 export default function Teacher() {
   const { me } = useSession()
@@ -62,13 +63,19 @@ export default function Teacher() {
         if (!first) return
         first = false
         const pending = entries.flatMap(([sid, d]) =>
-          (d?.classes ?? []).flatMap((c) => c.slots.filter((s) => !s.validatedAt && !s.distributed).map((s) => callPath(sid, c.id, d!.today, s.id))),
+          (d?.classes ?? []).flatMap((c) =>
+            c.slots
+              .filter((s) => !s.validatedAt && !s.distributed)
+              .map((s) => ({ path: callPath(sid, c.id, d!.today, s.id), halfDay: s.halfDay })),
+          ),
         )
         try {
           const today = entries.find(([, d]) => d)?.[1]?.today
-          if (pending.length === 1 && today && sessionStorage.getItem(AUTO_OPEN_KEY) !== today) {
+          // Un seul appel à faire (ou un seul pour la demi-journée en cours) : il s'ouvre directement.
+          const target = callToOpen(pending, parisHalfDay())
+          if (target && today && sessionStorage.getItem(AUTO_OPEN_KEY) !== today) {
             sessionStorage.setItem(AUTO_OPEN_KEY, today)
-            navigate(pending[0])
+            navigate(target.path)
           }
         } catch {
           /* stockage indisponible : pas d'ouverture automatique */

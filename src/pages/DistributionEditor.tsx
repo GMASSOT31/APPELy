@@ -285,8 +285,8 @@ export default function DistributionEditor() {
         <div className="grid grid-cols-[minmax(0,1fr)] gap-4 pb-32">
           <Card>
             <h2 className="mb-3 text-lg font-semibold">1. Classe et période</h2>
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-              <label className="col-span-2 grid gap-1.5 text-sm font-medium md:col-span-1">
+            <div className="grid grid-cols-1 gap-3 min-[400px]:grid-cols-2 lg:grid-cols-4">
+              <label className="grid gap-1.5 text-sm font-medium min-[400px]:col-span-2 lg:col-span-1">
                 Classe à répartir
                 <select value={form.sourceId} disabled={isEdit} onChange={(e) => setF({ sourceId: e.target.value })} className={inputCls}>
                   <option value="">— Choisir —</option>
@@ -312,13 +312,13 @@ export default function DistributionEditor() {
                   className={inputCls}
                 />
               </label>
-              <fieldset className="col-span-2 grid gap-1.5 md:col-span-1">
+              <fieldset className="grid gap-1.5 min-[400px]:col-span-2 lg:col-span-1">
                 <legend className="mb-1.5 text-sm font-medium">Créneaux</legend>
                 <div className="flex rounded-xl bg-white p-1 ring-1 ring-line">
                   {(Object.keys(PLAN_HALF_LABELS) as PlanHalfDays[]).map((h) => (
                     <label
                       key={h}
-                      className={`flex min-h-10 flex-1 cursor-pointer items-center justify-center rounded-lg px-2 text-sm font-semibold has-focus-visible:ring-2 has-focus-visible:ring-primary ${
+                      className={`flex min-h-11 flex-1 cursor-pointer items-center justify-center rounded-lg px-2 text-sm whitespace-nowrap font-semibold has-focus-visible:ring-2 has-focus-visible:ring-primary ${
                         form.half === h ? 'bg-primary text-white' : 'text-muted hover:bg-surface'
                       }`}
                     >

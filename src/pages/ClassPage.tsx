@@ -188,7 +188,7 @@ function TeachersSection({ data, run, base }: { data: ClassDetail; run: Run; bas
                   type="button"
                   aria-label={`Retirer ${t.display_name} de la classe`}
                   onClick={() => run(`${base}/teachers/${t.id}/remove`, {}, `Retirer ${t.display_name} de la classe ?`)}
-                  className="grid size-8 place-items-center rounded-full text-muted hover:bg-white hover:text-danger-ink"
+                  className="grid size-11 place-items-center rounded-full text-muted hover:bg-white hover:text-danger-ink"
                 >
                   <X className="size-4" aria-hidden />
                 </button>
@@ -596,7 +596,7 @@ function SlotForm({
               type="button"
               aria-pressed={halfDay === h}
               onClick={() => setHalfDay(h)}
-              className={`min-h-10 rounded-lg px-4 text-sm font-semibold ring-1 ${
+              className={`min-h-11 rounded-lg px-4 text-sm font-semibold ring-1 ${
                 halfDay === h ? 'bg-primary text-white ring-primary' : 'bg-white ring-line'
               }`}
             >

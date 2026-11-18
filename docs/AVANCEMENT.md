@@ -9,7 +9,7 @@
 | 4 / Direction | Dashboard temps réel, historique, messages, rappels | **Fait** (voir ci-dessous) |
 | 5 / Répartitions | Algorithme, édition, affectations, synchronisation | **Fait** (voir ci-dessous) |
 | 6 / Finalisation | Exports, PWA, audit sécurité, a11y | **Fait** (voir ci-dessous) |
-| 7 / Pilote | Scénarios E2E, docs, déploiement de test | À faire |
+| 7 / Pilote | Scénarios E2E, docs, déploiement de test | **Fait** (voir ci-dessous) |
 
 ## Lot 0 — vérifié
 
@@ -235,6 +235,67 @@ largeurs 320 et 360 px sans défilement horizontal, aucune violation CSP.
 - Couleur principale assombrie de #536dff à #425cec (contraste AA) : la planche reste reconnaissable, l’accessibilité prime (§11.3).
 - Pas d’image de démarrage iOS dédiée (une dizaine de tailles) : l’écran de lancement HTML s’affiche à la place.
 
+## Lot 7 — vérifié
+
+Tests : `tests/demo.test.ts` (10 tests : données de démonstration, réservé au superadmin, une seule école de démo,
+comptes fonctionnels, cloisonnement inter-écoles, suppression réservée aux écoles de démo, recréation), tests du choix
+d’appel à ouvrir (`src/domain/domain.test.ts`), soit **160 tests** ; parcours E2E `npm run e2e` (`e2e/parcours.mjs`) :
+**75/75 contrôles** sur `wrangler dev` + D1 locale jetable, rapport et captures dans `e2e/captures/` (non versionnés).
+
+- **Scénarios E2E P1 à P12 versionnés et rejouables** (`e2e/`, `npm run e2e`), trois profils fictifs : Marc, enseignant
+  pressé (Pixel 7), Nadia, directrice (ordinateur 1280 px puis 320/360/768 px), Julie, remplaçante (tablette 820 px,
+  accès 10 jours), plus l’admin et la direction d’une seconde école. P1 invitation à usage unique ; P2 import de 25
+  élèves avec erreurs détectées puis fichier corrigé, classes créées par import ; P3 jours ouverts, deux appels par jour
+  avec heure limite, présence par demi-journée ; P4 2 taps + Valider, retour serveur ; P5 tableau de bord mis à jour
+  sans recharger ; P6 CE1 A (24) → CP A / CE1 B / CE2 A = 30/30/30 ; P7 section « Élèves accueillis », registre
+  remonté à CE1 A ; P8 modification propagée et historisée, pas de double présence ; P9 correction avec ancienne /
+  nouvelle valeur ; P10 hors ligne « non transmis » puis une seule version ; P11 12 routes refusées entre écoles,
+  enseignant limité, révocation immédiate ; P12 13 écrans à 320/360/768/1280 px sans défilement horizontal, axe-core
+  sans violation, zones tactiles ≥ 44 px, iPhone 13 / iPhone SE / Pixel 7, appel au clavier seul. Plus : persistance
+  après redémarrage du serveur, création de l’école de démonstration.
+- **Corrections d’ergonomie trouvées par ces parcours** :
+  - L’enseignant qui a un appel le matin et un l’après-midi arrivait sur une liste : l’appel de la demi-journée en
+    cours s’ouvre maintenant directement (`callToOpen`).
+  - « Relancer » proposé pour une classe sans enseignant (personne à relancer) → remplacé par « Répartir » (ouvre
+    « Répartir une classe » prérempli : classe, date, créneau).
+  - Dates tronquées à 320 px (Répartir, Historique, Messages) → champs en une colonne sous 400 px ; « Après-midi »
+    coupé sur deux lignes dans le choix des créneaux.
+  - Zones tactiles de 40 px (niveaux, jours, demi-journée, catégories d’état, retirer un enseignant, logo) → 44 px.
+  - Bandeau rouge « appels non faits » : contraste insuffisant → rouge texte assombri (#ad2f2f).
+- **École de démonstration rejouable** (migration `0006_demo` : `schools.is_demo`) : bouton superadmin « Créer /
+  Recréer l’école de démonstration » ou `npm run demo` (`scripts/demo.mjs`). Une école fictive « des Tilleuls » :
+  7 classes (dont la recette CE1 A 24 → CP A 20 / CE1 B 24 / CE2 A 22), 160 élèves inventés (prénoms + noms de
+  plantes), 8 jours d’historique validé, un message, une absence prévue, une direction, deux enseignants et une
+  remplaçante (30 jours). Identifiants affichés **une seule fois** (jamais dans le dépôt). Une seule école de démo à
+  la fois ; « Supprimer » efface toutes ses données et ses comptes (réservé aux écoles `is_demo = 1`, journal d’audit
+  conservé). Coût : ~20 requêtes D1 (json_each), un seul calcul PBKDF2.
+- **Documentation** : `docs/GUIDE-UTILISATEUR.md` (Enseignant, Direction, Admin), `docs/DEPLOIEMENT.md` (Workers + D1,
+  secret `ADMIN_SETUP_CODE`, quotas, sauvegarde), `.dev.vars.example` (sans secret), `e2e/README.md`.
+
+### Choix faits en autonomie (lot 7)
+
+- Démonstration créée **dans l’application** (bouton superadmin) plutôt que par un script à lancer : l’utilisateur peut
+  la générer lui-même sur le site déployé sans outil de développement. Le script `npm run demo` appelle la même API.
+- Comptes de démonstration : **un mot de passe commun** (un seul hachage, temps de calcul limité des Workers) ; acceptable
+  pour des comptes fictifs, jamais pour de vrais comptes.
+- École de démonstration ouverte du lundi au samedi (dimanche fermé) pour pouvoir l’essayer n’importe quel jour.
+- E2E : script Playwright autonome (pas de lanceur de tests supplémentaire) ; l’appel de Marc porte sur la demi-journée
+  en cours et la répartition sur l’autre, pour rejouer le scénario à toute heure (pas le dimanche).
+
+## Definition of Done (§18) — vérification point par point
+
+| Point | État | Preuve |
+|---|---|---|
+| La Direction peut inviter une école puis créer ses classes et importer sa liste sans aide technique | ✅ | E2E P1–P2 (invitation, classes, import CSV avec erreurs corrigées), guide utilisateur |
+| Un enseignant connecté arrive directement au bon appel et le valide en quelques secondes | ✅ | E2E P4 : arrivée directe sur l’appel de la demi-journée, 2 taps + Valider, retour serveur |
+| La Direction constate la validation et les effectifs presque immédiatement | ✅ | E2E P5 : carte « Validé », 23 présents / 2 absents, sans recharger (≤ 30 s) |
+| Une classe entière peut être répartie et les élèves apparaissent sur les appels d’accueil | ✅ | E2E P6–P8, tests `distributions.test.ts` |
+| Aucune donnée ne traverse une frontière d’établissement ; comptes révocables | ✅ | E2E P11 (12 routes, UI), tests négatifs dans chaque fichier `tests/*`, révocation immédiate |
+| Erreurs réseau, modifications et appels hors ligne sans perte ni doublon | ✅ | E2E P10, tests d’idempotence (`calls.test.ts`), persistance après redémarrage |
+| Planche graphique respectée, lisibilité et accessibilité prioritaires | ✅ | Captures 320 → 1280 px, axe-core WCAG 2.1 AA sans violation ; couleurs assombries pour le contraste (écart assumé) |
+| Repo : README, schéma, migrations, tests, données fictives, guide utilisateur, guide de déploiement | ✅ | `README.md`, `docs/SCHEMA.md`, `worker/migrations/`, `tests/`, `e2e/`, `worker/lib/demo.ts`, `docs/GUIDE-UTILISATEUR.md`, `docs/DEPLOIEMENT.md` |
+| Usage réel conditionné à la validation institutionnelle et RGPD, sans exception | ⏳ hors code | Avertissement README + guides ; validation DASEN / DPD à obtenir (voir écarts ouverts) |
+
 ## Écarts au cahier des charges (assumés)
 
 - **Cloudflare D1 au lieu de Supabase** (quota de projets Supabase atteint). D1 n'a pas de RLS : le
@@ -254,3 +315,6 @@ largeurs 320 et 360 px sans défilement horizontal, aucune violation CSP.
 - Notifications push : non faites (facultatives au §10) ; notifications internes seulement.
 - Politique de conservation et purge des archives (§9) : à définir avec le responsable de traitement avant usage réel.
 - Localisation des données D1 : à vérifier dans le tableau de bord Cloudflare (juridiction UE souhaitée).
+- Lecteurs d’écran réels (VoiceOver, TalkBack, NVDA) et tests avec de vrais utilisateurs : à faire pendant le pilote.
+- Validation RGPD / institutionnelle (responsable de traitement, DPD académique, DASEN), politique de confidentialité
+  et registre de traitement : préalable obligatoire à toute école réelle.

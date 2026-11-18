@@ -11,7 +11,7 @@ export function Shell({ title, subtitle, children }: { title: string; subtitle?:
     <div className="min-h-dvh">
       <header className="border-b border-line bg-white print:hidden">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3">
-          <Link to="/" aria-label="Accueil Appely">
+          <Link to="/" aria-label="Accueil Appely" className="inline-flex min-h-11 items-center">
             <Logo size={30} />
           </Link>
           {me && (
@@ -47,7 +47,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
     <div className="grid min-h-dvh place-items-center px-4 py-10">
       <div className="w-full max-w-sm">
         <div className="mb-6 flex justify-center">
-          <Link to="/" aria-label="Accueil Appely">
+          <Link to="/" aria-label="Accueil Appely" className="inline-flex min-h-11 items-center">
             <Logo size={40} />
           </Link>
         </div>

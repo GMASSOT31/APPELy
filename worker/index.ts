@@ -47,6 +47,7 @@ import {
   updateDistribution,
 } from './routes/distributions'
 import { exportHistory } from './routes/exports'
+import { createDemoSchool, deleteDemoSchool } from './routes/demo'
 
 type Handler = (env: Env, req: Request, params: string[], origin: string) => Promise<Response>
 
@@ -66,6 +67,9 @@ const routes: [string, RegExp, Handler][] = [
   ['POST', /^\/api\/admin\/schools$/, (env, req, _p, o) => createSchool(env, req, o)],
   ['POST', new RegExp(`^/api/admin/schools/${ID}/invitation$`), (env, req, [s], o) => reinviteDirection(env, req, s, o)],
   ['POST', new RegExp(`^/api/admin/schools/${ID}/status$`), (env, req, [s]) => setSchoolStatus(env, req, s)],
+  // Lot 7 : école de démonstration (données fictives)
+  ['POST', /^\/api\/admin\/demo-school$/, (env, req, _p, o) => createDemoSchool(env, req, o)],
+  ['POST', new RegExp(`^/api/admin/schools/${ID}/delete-demo$`), (env, req, [s]) => deleteDemoSchool(env, req, s)],
   ['GET', new RegExp(`^/api/schools/${ID}/members$`), (env, req, [s]) => listMembers(env, req, s)],
   ['POST', new RegExp(`^/api/schools/${ID}/invitations$`), (env, req, [s], o) => inviteMember(env, req, s, o)],
   ['POST', new RegExp(`^/api/schools/${ID}/invitations/${ID}/revoke$`), (env, req, [s, i]) => revokeInvitation(env, req, s, i)],

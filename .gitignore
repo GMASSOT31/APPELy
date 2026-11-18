@@ -7,3 +7,5 @@ dist/
 *.local
 coverage/
 .dev.vars
+
+e2e/captures/

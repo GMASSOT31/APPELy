@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_STATUSES,
   applyTap,
+  callToOpen,
+  parisHalfDay,
   canValidate,
   computeTotals,
   initialEntries,
@@ -88,5 +90,25 @@ describe('répartition', () => {
 
   it('détecte un élève non affecté après correction manuelle', () => {
     expect(checkDistribution([{ id: 'a' }], hosts, {})).toEqual([{ type: 'UNASSIGNED', id: 'a' }])
+  })
+})
+
+describe('appel ouvert directement (lot 7)', () => {
+  const am = { halfDay: 'am' as const, id: 'matin' }
+  const pm = { halfDay: 'pm' as const, id: 'apres-midi' }
+  it('un seul appel à faire : il s’ouvre', () => {
+    expect(callToOpen([pm], 'am')).toBe(pm)
+  })
+  it('matin et après-midi à faire : celui de la demi-journée en cours', () => {
+    expect(callToOpen([am, pm], 'am')).toBe(am)
+    expect(callToOpen([am, pm], 'pm')).toBe(pm)
+  })
+  it('plusieurs appels sur la même demi-journée : la liste', () => {
+    expect(callToOpen([am, { ...am, id: 'autre' }], 'am')).toBeNull()
+    expect(callToOpen([], 'am')).toBeNull()
+  })
+  it('demi-journée en cours à Paris', () => {
+    expect(parisHalfDay(new Date('2026-11-18T10:59:00Z'))).toBe('am') // 11 h 59 à Paris
+    expect(parisHalfDay(new Date('2026-11-18T11:00:00Z'))).toBe('pm')
   })
 })

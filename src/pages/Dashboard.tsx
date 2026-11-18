@@ -400,7 +400,17 @@ function ClassRow({
               <Shuffle className="size-4" aria-hidden /> Voir la répartition
             </Link>
           )}
-          {r.state !== 'validated' && r.state !== 'distributed' && canRemind && (
+          {/* Lot 7 : sans enseignant affecté, il n'y a personne à relancer : on propose plutôt de répartir la classe. */}
+          {r.state !== 'validated' && r.state !== 'distributed' && canRemind && r.teachers.length === 0 && !r.distribution && (
+            <Link
+              to={`/ecole/${schoolId}/repartitions/nouvelle?classe=${r.classId}&date=${date}&creneau=${r.slot.halfDay}`}
+              className={action}
+              aria-label={`Répartir ${r.className}`}
+            >
+              <Shuffle className="size-4" aria-hidden /> Répartir
+            </Link>
+          )}
+          {r.state !== 'validated' && r.state !== 'distributed' && canRemind && r.teachers.length > 0 && (
             <Button variant={r.state === 'late' ? 'danger' : 'secondary'} loading={reminding} onClick={onRemind} aria-label={`Relancer l’enseignant de ${r.className}`}>
               {!reminding && <BellRing className="size-4" aria-hidden />} Relancer
             </Button>

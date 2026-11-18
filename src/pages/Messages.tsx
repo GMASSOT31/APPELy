@@ -218,7 +218,7 @@ function Composer({ schoolId, data, onDone }: { schoolId: string; data: Data; on
           )}
         </fieldset>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 min-[400px]:grid-cols-2">
           <label className="grid gap-1.5 text-sm font-medium">
             Visible du
             <input

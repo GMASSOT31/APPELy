@@ -1,12 +1,12 @@
 # Plan du modèle de données (Cloudflare D1 / SQLite)
 
-Implémenté : lot 1 (`worker/migrations/0001_acces_ecoles.ts` : schools, users, memberships, invitations, sessions, login_attempts, audit_events) et lot 2 (`0002_classes_eleves.ts` : school_closures, classes, teacher_class_assignments, students, student_schedules, call_slots, attendance_statuses, import_jobs). Lot 3 (`0003_appels.ts` : attendance_calls, attendance_entries, attendance_revisions). Lot 4 (`0004_direction.ts` : direction_messages, call_reminders, planned_absences). Lot 5 (`0005_repartitions.ts` : distribution_plans, distribution_assignments, distribution_changes, distribution_notices, colonne attendance_entries.hosted_from_class_id). Lot 6 : aucune nouvelle table — les exports sont générés à la volée (jamais stockés) et tracés dans `audit_events` (`history.exported`), comme les connexions (`auth.login`).
+Implémenté : lot 1 (`worker/migrations/0001_acces_ecoles.ts` : schools, users, memberships, invitations, sessions, login_attempts, audit_events) et lot 2 (`0002_classes_eleves.ts` : school_closures, classes, teacher_class_assignments, students, student_schedules, call_slots, attendance_statuses, import_jobs). Lot 3 (`0003_appels.ts` : attendance_calls, attendance_entries, attendance_revisions). Lot 4 (`0004_direction.ts` : direction_messages, call_reminders, planned_absences). Lot 5 (`0005_repartitions.ts` : distribution_plans, distribution_assignments, distribution_changes, distribution_notices, colonne attendance_entries.hosted_from_class_id). Lot 6 : aucune nouvelle table — les exports sont générés à la volée (jamais stockés) et tracés dans `audit_events` (`history.exported`), comme les connexions (`auth.login`). Lot 7 (`0006_demo.ts`) : colonne `schools.is_demo` (école de démonstration fictive, seule école supprimable entièrement ; actions `demo.created` / `demo.deleted` dans `audit_events`).
 
 Repris du cahier des charges §13, avec les contraintes à garantir côté base.
 
 | Table | Champs essentiels | Contraintes |
 |---|---|---|
-| schools | id uuid, slug unique, name, uai (option), academic_year, timezone, status | status ∈ invited / active / suspended |
+| schools | id uuid, slug unique, name, uai (option), academic_year, timezone, status, closed_weekdays, is_demo | status ∈ invited / active / suspended ; is_demo ∈ 0 / 1 |
 | memberships | auth_user_id, school_id, role, active_from/to, invitation_status | role ∈ superadmin / direction / enseignant / remplacant ; remplaçant = active_to obligatoire |
 | classes | id, school_id, name, levels[], school_year, active | |
 | teacher_class_assignments | teacher_user_id, class_id, start_at, end_at | |

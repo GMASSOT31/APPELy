@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Navigate } from 'react-router-dom'
-import { Plus } from 'lucide-react'
+import { FlaskConical, Plus } from 'lucide-react'
 import { Shell } from '../components/Shell'
 import { Badge, Button, Card, CopyLink, ErrorBox, Field, Spinner, SuccessBox } from '../components/ui'
 import { api, ApiError, formatDate } from '../lib/api'
@@ -12,6 +12,7 @@ interface School {
   slug: string
   uai: string | null
   status: 'invited' | 'active' | 'suspended'
+  is_demo?: number
   created_at: string
   members: number
 }
@@ -79,6 +80,7 @@ export default function Admin() {
       )}
 
       <ErrorBox>{error}</ErrorBox>
+      {schools && <DemoSchoolCard demo={schools.find((s) => s.is_demo === 1) ?? null} onChange={load} />}
       {!schools ? (
         <Spinner />
       ) : schools.length === 0 ? (
@@ -93,6 +95,7 @@ export default function Admin() {
                     <div className="flex flex-wrap items-center gap-2">
                       <h2 className="font-semibold">{s.name}</h2>
                       <Badge tone={STATUS[s.status].tone}>{STATUS[s.status].label}</Badge>
+                      {s.is_demo === 1 && <Badge tone="info">Démonstration</Badge>}
                     </div>
                     <p className="mt-1 text-sm text-muted">
                       {s.uai ? `UAI ${s.uai} · ` : ''}
@@ -181,6 +184,95 @@ function NewSchoolForm({ onCancel, onCreated }: { onCancel: () => void; onCreate
           </Button>
         </div>
       </form>
+    </Card>
+  )
+}
+
+interface DemoResult {
+  loginUrl: string
+  password: string
+  accounts: { profile: string; email: string }[]
+  counts: { classes: number; students: number; calls: number }
+}
+
+/**
+ * École de démonstration (lot 7) : données entièrement fictives, créées en un clic pour essayer l'application
+ * avec les trois profils (direction, enseignant, remplaçant). Les identifiants ne sont affichés qu'une fois.
+ */
+function DemoSchoolCard({ demo, onChange }: { demo: School | null; onChange: () => void }) {
+  const [result, setResult] = useState<DemoResult | null>(null)
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  async function create() {
+    if (demo && !confirm('Recréer l’école de démonstration ? Toutes ses données (fictives) seront effacées puis recréées.')) return
+    setError('')
+    setLoading(true)
+    try {
+      if (demo) await api(`/api/admin/schools/${demo.id}/delete-demo`, {})
+      setResult(await api<DemoResult>('/api/admin/demo-school', {}))
+      onChange()
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Erreur inattendue.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function remove() {
+    if (!demo || !confirm('Supprimer l’école de démonstration et ses comptes ?')) return
+    setError('')
+    try {
+      await api(`/api/admin/schools/${demo.id}/delete-demo`, {})
+      setResult(null)
+      onChange()
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+
+  return (
+    <Card className="mb-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <h2 className="flex items-center gap-2 font-semibold">
+            <FlaskConical className="size-4 text-primary" aria-hidden /> École de démonstration
+          </h2>
+          <p className="mt-1 text-sm text-muted">
+            Une école fictive prête à essayer : 7 classes, 160 élèves inventés, un historique d’appels, une direction, deux
+            enseignants et une remplaçante. Ouverte du lundi au samedi pour pouvoir tester n’importe quel jour.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant={demo ? 'secondary' : 'primary'} loading={loading} onClick={create}>
+            {demo ? 'Recréer l’école de démonstration' : 'Créer l’école de démonstration'}
+          </Button>
+          {demo && (
+            <Button variant="ghost" onClick={remove}>
+              Supprimer
+            </Button>
+          )}
+        </div>
+      </div>
+      <div className="mt-3 grid gap-3">
+        <ErrorBox>{error}</ErrorBox>
+        {result && (
+          <SuccessBox>
+            <p className="font-semibold">École de démonstration prête. Notez ces identifiants : ils ne seront plus affichés.</p>
+            <p className="mt-1">
+              Mot de passe commun : <code className="rounded bg-white px-1.5 py-0.5 font-semibold text-ink">{result.password}</code>
+            </p>
+            <ul className="mt-2 grid gap-1">
+              {result.accounts.map((a) => (
+                <li key={a.email} className="break-all">
+                  <span className="font-medium">{a.profile}</span> : {a.email}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-xs">Connexion : {result.loginUrl}</p>
+          </SuccessBox>
+        )}
+      </div>
     </Card>
   )
 }

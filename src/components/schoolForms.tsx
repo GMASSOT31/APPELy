@@ -16,7 +16,7 @@ export function LevelPicker({ value, onChange }: { value: string[]; onChange: (v
               type="button"
               aria-pressed={on}
               onClick={() => onChange(on ? value.filter((x) => x !== l) : value.length < 3 ? [...value, l] : value)}
-              className={`min-h-10 min-w-12 rounded-lg px-2.5 text-sm font-semibold ring-1 ${
+              className={`min-h-11 min-w-12 rounded-lg px-2.5 text-sm font-semibold ring-1 ${
                 on ? 'bg-primary text-white ring-primary' : 'bg-white text-ink ring-line hover:bg-surface'
               }`}
             >
@@ -54,7 +54,7 @@ export function WeekdayPicker({
               type="button"
               aria-pressed={on}
               onClick={() => onChange(value ^ bit)}
-              className={`min-h-10 min-w-12 rounded-lg px-2.5 text-sm font-semibold ring-1 ${
+              className={`min-h-11 min-w-12 rounded-lg px-2.5 text-sm font-semibold ring-1 ${
                 on ? 'bg-primary text-white ring-primary' : 'bg-white text-ink ring-line hover:bg-surface'
               }`}
             >

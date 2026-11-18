@@ -207,7 +207,7 @@ function StatusForm({
               type="button"
               aria-pressed={category === c}
               onClick={() => setCategory(c)}
-              className={`min-h-10 rounded-lg px-3 text-sm font-semibold ring-1 ${
+              className={`min-h-11 rounded-lg px-3 text-sm font-semibold ring-1 ${
                 category === c ? 'bg-primary text-white ring-primary' : 'bg-white ring-line'
               }`}
             >

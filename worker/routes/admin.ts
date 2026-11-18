@@ -25,7 +25,7 @@ export async function listSchools(env: Env, req: Request) {
   requireSuperadmin(await requireUser(env, req))
   const now = nowIso()
   const { results } = await env.DB.prepare(
-    `SELECT s.id, s.name, s.slug, s.uai, s.status, s.created_at,
+    `SELECT s.id, s.name, s.slug, s.uai, s.status, s.is_demo, s.created_at,
             (SELECT COUNT(*) FROM memberships m WHERE m.school_id = s.id AND m.revoked_at IS NULL
                AND (m.active_to IS NULL OR m.active_to > ?)) AS members
        FROM schools s ORDER BY s.created_at DESC`,
