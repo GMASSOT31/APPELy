@@ -1,0 +1,48 @@
+@import 'tailwindcss';
+
+/* Design tokens Appely (cahier des charges §01). */
+@theme {
+  --font-sans: 'Inter Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  --color-night: #182c59;
+  --color-primary: #536dff;
+  --color-primary-strong: #3f57e6;
+  --color-success: #24b89a;
+  --color-success-ink: #137a65;
+  --color-danger: #ff6b6b;
+  --color-danger-ink: #c23a3a;
+  --color-surface: #eef2ff;
+  --color-canvas: #f7f9fc;
+  --color-ink: #182c59;
+  --color-muted: #5b6785;
+  --color-line: #e3e8f4;
+
+  --radius-card: 1rem;
+  --shadow-card: 0 1px 2px rgb(24 44 89 / 0.06), 0 4px 16px rgb(24 44 89 / 0.06);
+}
+
+html {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  min-height: 100dvh;
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}

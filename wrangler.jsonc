@@ -1,7 +1,11 @@
 {
   "name": "appely",
   "compatibility_date": "2025-09-01",
+  "build": {
+    "command": "npm run build"
+  },
   "assets": {
-    "directory": "./public"
+    "directory": "./dist",
+    "not_found_handling": "single-page-application"
   }
 }
