@@ -1,4 +1,6 @@
-# Plan du modèle de données (à implémenter au lot 1, Supabase / Postgres)
+# Plan du modèle de données (Cloudflare D1 / SQLite)
+
+Tables du lot 1 implémentées dans `worker/migrations/0001_acces_ecoles.ts` : schools, users, memberships, invitations, sessions, login_attempts, audit_events. Les autres arrivent avec leurs lots.
 
 Repris du cahier des charges §13, avec les contraintes à garantir côté base.
 
@@ -20,9 +22,9 @@ Repris du cahier des charges §13, avec les contraintes à garantir côté base.
 | audit_events | actor, school_id, action, object, before/after minimal, timestamp serveur | append-only |
 | import_jobs / export_jobs | school_id, user_id, kind, result, timestamp, deletion_state | |
 
-## Sécurité (RLS)
+## Sécurité (équivalent RLS, appliqué dans le Worker)
 
-- RLS activée sur toutes les tables portant un `school_id` ; politique de base :
+- Toute route portant un `school_id` passe par `requireSchoolRole` :
   l’utilisateur doit avoir une `membership` active dans l’école.
 - Enseignant : lecture/écriture limitée à ses classes affectées et aux élèves accueillis chez lui.
 - Superadmin : métadonnées des écoles uniquement, pas les noms d’élèves par défaut.

@@ -16,15 +16,23 @@ npm test         # tests unitaires et d’interface
 npm run build    # build de production dans dist/
 ```
 
+Serveur local complet (API + base D1 locale) : créer `.dev.vars` avec
+`ADMIN_SETUP_CODE="un-code-local"`, puis `npx wrangler dev`, et ouvrir `/installation`.
+
 ## Déploiement
 
-Cloudflare Workers (assets statiques), relié au dépôt GitHub : chaque push sur `main`
-lance `npm run build` puis `wrangler deploy` (voir `wrangler.jsonc`).
+Cloudflare Workers, relié au dépôt GitHub : chaque push sur `main` lance `npm run build`
+puis `wrangler deploy` (voir `wrangler.jsonc`). Les tables de la base D1 `appely-db` sont
+créées ou mises à jour automatiquement au premier appel d'API (`worker/lib/migrate.ts`).
+
+Variable secrète à définir dans Cloudflare (Worker `appely` → Paramètres → Variables et secrets) :
+`ADMIN_SETUP_CODE`, code utilisé une seule fois sur `/installation` pour créer le superadmin.
 
 ## Stack
 
-React + TypeScript + Vite · Tailwind CSS · Lucide · Vitest + Testing Library.
-Prévu : Supabase (Postgres + Auth + RLS, région UE) pour le backend, Vite PWA.
+- Front : React + TypeScript + Vite · Tailwind CSS · Lucide · React Router
+- API : Cloudflare Worker (`worker/`) · base Cloudflare D1 (SQLite)
+- Tests : Vitest + Testing Library · tests d'API sur D1 locale (`tests/`)
 
 ## Avancement
 

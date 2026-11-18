@@ -1,11 +1,22 @@
 {
   "name": "appely",
+  "main": "worker/index.ts",
   "compatibility_date": "2025-09-01",
   "build": {
     "command": "npm run build"
   },
   "assets": {
     "directory": "./dist",
-    "not_found_handling": "single-page-application"
-  }
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "appely-db",
+      "database_id": "d07f8448-990c-4be2-9ea8-606169692c55"
+    }
+  ],
+  "observability": { "enabled": true }
 }
