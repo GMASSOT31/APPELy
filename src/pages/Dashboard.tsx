@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, Navigate, useParams } from 'react-router-dom'
-import { AlertTriangle, BellRing, CheckCircle2, Clock, ExternalLink, Megaphone, RefreshCw } from 'lucide-react'
+import { AlertTriangle, BellRing, CheckCircle2, Clock, ExternalLink, Megaphone, RefreshCw, Shuffle } from 'lucide-react'
 import { Shell } from '../components/Shell'
 import { SchoolNav } from '../components/SchoolNav'
 import { Badge, Button, Card, ErrorBox, Spinner } from '../components/ui'
@@ -8,6 +8,7 @@ import { api, ApiError } from '../lib/api'
 import { callPath, useDirection } from '../lib/school'
 import { dayLabel, formatDue, timeOf } from '../lib/schoolFormat'
 import { summarize, type CallState, type DashTab } from '../domain/direction'
+import { primaryLink } from '../lib/distribution'
 
 interface Row {
   classId: string
@@ -26,6 +27,17 @@ interface Row {
   absentees: { name: string; label: string }[]
   plannedAbsences: number
   remindedAt: string | null
+  /** Lot 5 : élèves répartis ailleurs, avec la couverture remontée des classes d'accueil. */
+  distribution: null | {
+    planId: string
+    total: number
+    confirmed: number
+    present: number
+    absent: number
+    complete: boolean
+    hosts: { className: string; total: number; confirmed: number }[]
+  }
+  hosted: null | { count: number; from: string[] }
 }
 interface DashboardData {
   date: string
@@ -151,9 +163,14 @@ export default function Dashboard() {
             <>Mis à jour automatiquement · {updatedAt.toLocaleTimeString('fr-FR')}</>
           ) : null}
         </p>
-        <Button variant="secondary" onClick={() => void load()} loading={loading} aria-label="Actualiser maintenant">
-          {!loading && <RefreshCw className="size-4" aria-hidden />} Actualiser
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Link to={`/ecole/${schoolId}/repartitions/nouvelle`} className={primaryLink}>
+            <Shuffle className="size-4" aria-hidden /> Répartir une classe
+          </Link>
+          <Button variant="secondary" onClick={() => void load()} loading={loading} aria-label="Actualiser maintenant">
+            {!loading && <RefreshCw className="size-4" aria-hidden />} Actualiser
+          </Button>
+        </div>
       </div>
       <ErrorBox>{error}</ErrorBox>
       {notice && (
@@ -216,7 +233,7 @@ export default function Dashboard() {
               <Kpi label="En retard" value={k.late} tone={k.late ? 'danger' : undefined} />
               <Kpi label="Présents" value={k.present} />
               <Kpi label="Absents" value={k.absent} />
-              <Kpi label="Répartitions actives" value={data.activeDistributions} />
+              <Kpi label="Répartitions actives" value={data.activeDistributions} to={`/ecole/${schoolId}/repartitions`} />
             </dl>
 
             {rows.length === 0 && <Card className="text-sm text-muted">Aucun appel sur ce créneau aujourd’hui.</Card>}
@@ -247,10 +264,18 @@ export default function Dashboard() {
   )
 }
 
-function Kpi({ label, value, tone }: { label: string; value: number; tone?: 'success' | 'danger' }) {
+function Kpi({ label, value, tone, to }: { label: string; value: number; tone?: 'success' | 'danger'; to?: string }) {
   return (
-    <div className={`rounded-xl px-3 py-2.5 ring-1 ${tone === 'danger' ? 'bg-danger/10 ring-danger/40' : 'bg-white ring-line'}`}>
-      <dt className="text-xs font-medium text-muted">{label}</dt>
+    <div className={`relative rounded-xl px-3 py-2.5 ring-1 ${tone === 'danger' ? 'bg-danger/10 ring-danger/40' : 'bg-white ring-line'} ${to ? 'hover:bg-surface' : ''}`}>
+      <dt className="text-xs font-medium text-muted">
+        {to ? (
+          <Link to={to} className="after:absolute after:inset-0 after:content-['']">
+            {label}
+          </Link>
+        ) : (
+          label
+        )}
+      </dt>
       <dd className={`text-2xl font-bold tabular-nums ${tone === 'success' ? 'text-success-ink' : tone === 'danger' ? 'text-danger-ink' : ''}`}>
         {value}
       </dd>
@@ -259,6 +284,13 @@ function Kpi({ label, value, tone }: { label: string; value: number; tone?: 'suc
 }
 
 function StateBadge({ r }: { r: Row }) {
+  if (r.state === 'distributed' && r.distribution)
+    return (
+      <Badge tone={r.distribution.complete ? 'success' : 'info'}>
+        <Shuffle className="mr-1 size-3.5" aria-hidden />
+        Répartie · {r.distribution.confirmed}/{r.distribution.total} confirmés
+      </Badge>
+    )
   if (r.state === 'validated')
     return (
       <Badge tone="success">
@@ -310,7 +342,12 @@ function ClassRow({
           <StateBadge r={r} />
         </div>
         <p className="mt-2 text-sm">
-          {r.counts ? (
+          {r.state === 'distributed' ? (
+            <span className="text-muted">
+              Élèves dans les classes d’accueil
+              {r.distribution && r.distribution.confirmed > 0 && ` · ${plural(r.distribution.present, 'présent')}, ${plural(r.distribution.absent, 'absent')}`}
+            </span>
+          ) : r.counts ? (
             <>
               <strong className="text-success-ink">{plural(r.counts.present, 'présent')}</strong> ·{' '}
               <strong className={r.counts.absent ? 'text-danger-ink' : ''}>{plural(r.counts.absent, 'absent')}</strong>
@@ -322,6 +359,21 @@ function ClassRow({
           )}
           {r.plannedAbsences > 0 && <span className="text-muted"> · {plural(r.plannedAbsences, 'absence prévue', 'absences prévues')}</span>}
         </p>
+        {r.hosted && (
+          <p className="mt-1 text-sm font-medium text-primary-strong">
+            dont {plural(r.hosted.count, 'élève accueilli', 'élèves accueillis')} ({r.hosted.from.join(', ')})
+          </p>
+        )}
+        {r.distribution && (
+          <p className="mt-1 text-sm break-words">
+            <span className="font-medium">{r.state === 'distributed' ? 'Appels des élèves répartis' : `${plural(r.distribution.total, 'élève réparti', 'élèves répartis')} ailleurs`} : </span>
+            <span className="text-muted">
+              {r.distribution.hosts.map((h) => `${h.className} ${h.confirmed}/${h.total}`).join(' · ')}
+              {r.distribution.total > r.distribution.hosts.reduce((a, h) => a + h.total, 0) &&
+                ` · ${plural(r.distribution.total - r.distribution.hosts.reduce((a, h) => a + h.total, 0), 'absent connu', 'absents connus')}`}
+            </span>
+          </p>
+        )}
         {r.absentees.length > 0 && (
           <p className="mt-1 text-sm break-words text-muted">
             {r.absentees
@@ -343,7 +395,12 @@ function ClassRow({
           <Link to={`/ecole/${schoolId}/messages?classe=${r.classId}`} className={action} aria-label={`Envoyer un message à ${r.className}`}>
             <Megaphone className="size-4" aria-hidden /> Message
           </Link>
-          {r.state !== 'validated' && canRemind && (
+          {r.distribution && (
+            <Link to={`/ecole/${schoolId}/repartitions/${r.distribution.planId}`} className={action} aria-label={`Voir la répartition de ${r.className}`}>
+              <Shuffle className="size-4" aria-hidden /> Voir la répartition
+            </Link>
+          )}
+          {r.state !== 'validated' && r.state !== 'distributed' && canRemind && (
             <Button variant={r.state === 'late' ? 'danger' : 'secondary'} loading={reminding} onClick={onRemind} aria-label={`Relancer l’enseignant de ${r.className}`}>
               {!reminding && <BellRing className="size-4" aria-hidden />} Relancer
             </Button>

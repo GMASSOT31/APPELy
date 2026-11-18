@@ -13,8 +13,10 @@ interface Row {
   classId: string
   className: string
   slot: { id: string; name: string; halfDay: 'am' | 'pm' }
-  state: 'validated' | 'corrected' | 'missing'
+  state: 'validated' | 'corrected' | 'missing' | 'distributed'
   version: number | null
+  hosted: { count: number; from: string[] } | null
+  distribution: { total: number; confirmed: number } | null
   validatedAt: string | null
   updatedAt: string | null
   by: string | null
@@ -36,6 +38,7 @@ const STATES = [
   ['validated', 'Validé'],
   ['corrected', 'Corrigé'],
   ['missing', 'Non fait'],
+  ['distributed', 'Répartie'],
 ] as const
 
 const inputCls = 'min-h-11 w-full min-w-0 rounded-xl bg-white px-3 text-base ring-1 ring-line focus:ring-2 focus:ring-primary focus:outline-none'
@@ -88,7 +91,7 @@ export default function HistoryPage() {
     <Shell title="Historique des appels">
       <SchoolNav schoolId={schoolId} />
       <Card className="mb-4">
-        <form className="grid grid-cols-2 gap-3 md:grid-cols-5" onSubmit={(e) => e.preventDefault()} aria-label="Filtres">
+        <form className="grid grid-cols-2 gap-3 md:grid-cols-6" onSubmit={(e) => e.preventDefault()} aria-label="Filtres">
           <label className="grid gap-1.5 text-sm font-medium">
             Du
             <input type="date" value={params.get('from') ?? data?.from ?? ''} max={data?.today} onChange={(e) => set('from', e.target.value)} className={inputCls} />
@@ -119,7 +122,14 @@ export default function HistoryPage() {
               ))}
             </select>
           </label>
-          <label className="col-span-2 grid gap-1.5 text-sm font-medium md:col-span-1">
+          <label className="grid gap-1.5 text-sm font-medium">
+            Répartitions
+            <select value={params.get('distribution') ?? ''} onChange={(e) => set('distribution', e.target.value)} className={inputCls}>
+              <option value="">Tous les appels</option>
+              <option value="1">Seulement les répartitions</option>
+            </select>
+          </label>
+          <label className="grid gap-1.5 text-sm font-medium">
             État
             <select value={params.get('state') ?? ''} onChange={(e) => set('state', e.target.value)} className={inputCls}>
               {STATES.map(([v, l]) => (
@@ -163,9 +173,18 @@ export default function HistoryPage() {
                             {r.state === 'validated' && <Badge tone="success">Validé</Badge>}
                             {r.state === 'corrected' && <Badge tone="info">Corrigé (version {r.version})</Badge>}
                             {r.state === 'missing' && <Badge tone="danger">Non fait</Badge>}
+                            {r.state === 'distributed' && (
+                              <Badge tone={r.distribution && r.distribution.confirmed === r.distribution.total ? 'success' : 'warning'}>
+                                Répartie · {r.distribution?.confirmed}/{r.distribution?.total} confirmés
+                              </Badge>
+                            )}
+                            {r.hosted && <Badge tone="info">+{r.hosted.count} accueillis ({r.hosted.from.join(', ')})</Badge>}
+                            {r.state !== 'distributed' && r.distribution && <Badge tone="info">{r.distribution.total} répartis ailleurs</Badge>}
                           </span>
                           <span className="block text-sm text-muted">
-                            {r.counts
+                            {r.state === 'distributed'
+                              ? 'Élèves dans les classes d’accueil'
+                              : r.counts
                               ? `${r.counts.present} présent${r.counts.present > 1 ? 's' : ''} · ${r.counts.absent} absent${r.counts.absent > 1 ? 's' : ''}${
                                   r.counts.other ? ` · ${r.counts.other} autre${r.counts.other > 1 ? 's' : ''}` : ''
                                 } / ${r.expected} · validé à ${timeOf(r.validatedAt!)}${

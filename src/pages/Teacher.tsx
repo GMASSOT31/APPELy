@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { BellRing, CalendarX, CheckCircle2, ChevronRight, Circle } from 'lucide-react'
+import { BellRing, CalendarX, CheckCircle2, ChevronRight, Circle, Shuffle } from 'lucide-react'
 import { Shell } from '../components/Shell'
-import { MessageList, type DirectionMessage } from '../components/DirectionMessages'
+import { DistributionNotices, MessageList, type DirectionMessage, type DistributionNotice } from '../components/DirectionMessages'
 import { timeOf } from '../lib/schoolFormat'
 import { Card, Spinner } from '../components/ui'
 import { api, formatDate, ROLE_LABELS } from '../lib/api'
@@ -16,11 +16,17 @@ interface DaySlot {
   dueTime: string | null
   validatedAt: string | null
   remindedAt: string | null
+  /** Classe entièrement répartie : pas d'appel à faire, les classes d'accueil s'en chargent. */
+  distributed: boolean
+  awayCount: number
+  hostedCount: number
+  hostedFrom: string[]
 }
 interface Day {
   today: string
   closure: string | null
   messages: DirectionMessage[]
+  distributionNotices: DistributionNotice[]
   classes: { id: string; name: string; slots: DaySlot[] }[]
 }
 
@@ -56,7 +62,7 @@ export default function Teacher() {
         if (!first) return
         first = false
         const pending = entries.flatMap(([sid, d]) =>
-          (d?.classes ?? []).flatMap((c) => c.slots.filter((s) => !s.validatedAt).map((s) => callPath(sid, c.id, d!.today, s.id))),
+          (d?.classes ?? []).flatMap((c) => c.slots.filter((s) => !s.validatedAt && !s.distributed).map((s) => callPath(sid, c.id, d!.today, s.id))),
         )
         try {
           const today = entries.find(([, d]) => d)?.[1]?.today
@@ -102,8 +108,9 @@ export default function Teacher() {
                     </Link>
                   )}
                 </div>
-                {d && d.messages.length > 0 && (
-                  <div className="mb-3">
+                {d && (d.messages.length > 0 || d.distributionNotices?.length > 0) && (
+                  <div className="mb-3 grid gap-2">
+                    <DistributionNotices notices={d.distributionNotices ?? []} showClasses={d.classes.length > 1} />
                     <MessageList messages={d.messages} showClasses={d.classes.length > 1} />
                   </div>
                 )}
@@ -129,10 +136,12 @@ export default function Teacher() {
                               <Link
                                 to={callPath(m.schoolId, c.id, d.today, s.id)}
                                 className={`flex min-h-16 items-center gap-3 rounded-[var(--radius-card)] p-4 shadow-[var(--shadow-card)] ring-1 ${
-                                  s.validatedAt ? 'bg-white ring-transparent' : 'bg-primary text-white ring-primary'
+                                  s.validatedAt || s.distributed ? 'bg-white ring-transparent' : 'bg-primary text-white ring-primary'
                                 }`}
                               >
-                                {s.validatedAt ? (
+                                {s.distributed ? (
+                                  <Shuffle className="size-6 shrink-0 text-primary" aria-hidden />
+                                ) : s.validatedAt ? (
                                   <CheckCircle2 className="size-6 shrink-0 text-success" aria-hidden />
                                 ) : (
                                   <Circle className="size-6 shrink-0 text-white/70" aria-hidden />
@@ -141,12 +150,24 @@ export default function Teacher() {
                                   <span className="block font-semibold">
                                     {c.name} · {s.name}
                                   </span>
-                                  <span className={`block text-sm ${s.validatedAt ? 'text-muted' : 'text-white/85'}`}>
-                                    {s.validatedAt
+                                  <span className={`block text-sm ${s.validatedAt || s.distributed ? 'text-muted' : 'text-white/85'}`}>
+                                    {s.distributed
+                                      ? 'Classe répartie : pas d’appel à faire, voir où sont vos élèves'
+                                      : s.validatedAt
                                       ? `Validé à ${new Date(s.validatedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`
                                       : `À faire${s.dueTime ? ` avant ${Number(s.dueTime.slice(0, 2))} h ${s.dueTime.slice(3)}` : ''}`}
                                   </span>
-                                  {s.remindedAt && !s.validatedAt && (
+                                  {s.hostedCount > 0 && (
+                                    <span className={`block text-sm font-semibold ${s.validatedAt ? 'text-primary-strong' : 'text-white'}`}>
+                                      + {s.hostedCount} élève{s.hostedCount > 1 ? 's' : ''} accueilli{s.hostedCount > 1 ? 's' : ''} ({s.hostedFrom.join(', ')})
+                                    </span>
+                                  )}
+                                  {!s.distributed && s.awayCount > 0 && (
+                                    <span className={`block text-sm ${s.validatedAt ? 'text-muted' : 'text-white/85'}`}>
+                                      {s.awayCount} élève{s.awayCount > 1 ? 's' : ''} réparti{s.awayCount > 1 ? 's' : ''} ailleurs
+                                    </span>
+                                  )}
+                                  {s.remindedAt && !s.validatedAt && !s.distributed && (
                                     <span className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-0.5 text-xs font-semibold text-danger-ink">
                                       <BellRing className="size-3.5" aria-hidden /> Relance de la direction à {timeOf(s.remindedAt)}
                                     </span>

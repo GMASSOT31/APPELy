@@ -1,4 +1,4 @@
-import { BellRing, Megaphone } from 'lucide-react'
+import { BellRing, Megaphone, Shuffle } from 'lucide-react'
 import { timeOf } from '../lib/schoolFormat'
 
 export interface DirectionMessage {
@@ -49,5 +49,33 @@ export function ReminderNotice({ at, className = '' }: { at: string; className?:
       <BellRing className="size-4 shrink-0" aria-hidden />
       La direction vous a relancé à {timeOf(at)} : l’appel n’est pas encore fait.
     </p>
+  )
+}
+
+export interface DistributionNotice {
+  id: string
+  classId: string
+  className?: string
+  body: string
+  at: string
+}
+
+/** Notifications internes de répartition (§10) : création, modification, annulation, sans fenêtre bloquante. */
+export function DistributionNotices({ notices, showClasses }: { notices: DistributionNotice[]; showClasses?: boolean }) {
+  if (!notices.length) return null
+  return (
+    <ul aria-label="Répartitions" className="grid gap-2">
+      {notices.map((n) => (
+        <li key={n.id} className="flex gap-3 rounded-xl bg-surface px-4 py-3 text-sm text-ink ring-1 ring-primary/25">
+          <Shuffle className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+          <div className="min-w-0">
+            <p className="text-xs font-semibold tracking-wide uppercase opacity-80">
+              Répartition{showClasses && n.className ? ` · ${n.className}` : ''} · {timeOf(n.at)}
+            </p>
+            <p className="mt-0.5 break-words">{n.body}</p>
+          </div>
+        </li>
+      ))}
+    </ul>
   )
 }

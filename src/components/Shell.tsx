@@ -9,7 +9,7 @@ export function Shell({ title, subtitle, children }: { title: string; subtitle?:
   const navigate = useNavigate()
   return (
     <div className="min-h-dvh">
-      <header className="border-b border-line bg-white">
+      <header className="border-b border-line bg-white print:hidden">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3">
           <Link to="/" aria-label="Accueil Appely">
             <Logo size={30} />

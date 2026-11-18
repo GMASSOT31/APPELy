@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Check, ChevronDown, History, MoreHorizontal, Pencil, X } from 'lucide-react'
+import { ArrowLeft, Check, ChevronDown, History, MoreHorizontal, Pencil, Shuffle, X } from 'lucide-react'
 import { Shell } from '../components/Shell'
-import { MessageList, ReminderNotice, type DirectionMessage } from '../components/DirectionMessages'
+import { DistributionNotices, MessageList, ReminderNotice, type DirectionMessage, type DistributionNotice } from '../components/DirectionMessages'
 import { Button, Card, ErrorBox, Spinner } from '../components/ui'
 import { api, ApiError, formatDate } from '../lib/api'
 import { STATUS_COLOR_CLASSES } from '../lib/schoolFormat'
@@ -28,7 +28,18 @@ interface CallData {
   date: string
   noCallReason: string | null
   statuses: Status[]
-  students: { id: string; firstName: string; lastName: string | null }[]
+  students: {
+    id: string
+    firstName: string
+    lastName: string | null
+    /** Élève accueilli (répartition) : sa classe d'origine. */
+    hostedFrom: { id: string; name: string } | null
+    /** Accueilli après la validation : à intégrer par une correction. */
+    pending: boolean
+  }[]
+  /** Élèves de la classe répartis ailleurs ce jour-là, avec l'état remonté de leur classe d'accueil. */
+  distributed: { id: string; firstName: string; lastName: string | null; hostName: string | null; status: string | null; category: string | null }[]
+  notices: DistributionNotice[]
   messages: DirectionMessage[]
   /** Absences prévues : élève → motif. Prépositionné Absent, toujours « à vérifier ». */
   plannedAbsences: Record<string, string>
@@ -108,8 +119,10 @@ export default function CallPage() {
         const active = d.statuses.filter((s) => s.active)
         const present = active.find((s) => s.category === 'PRESENT')
         const absent = active.find((s) => s.category === 'ABSENT')
+        const pending = d.students.filter((s) => s.pending)
         const base = d.call
-          ? d.call.entries
+          ? // Élèves accueillis ajoutés après la validation : prépositionnés Présent, « à vérifier ».
+            { ...Object.fromEntries(pending.map((s) => [s.id, present?.id ?? ''])), ...d.call.entries }
           : Object.fromEntries(d.students.map((s) => [s.id, (d.plannedAbsences[s.id] && absent ? absent.id : present?.id) ?? '']))
         const draft = opts.keepDraft ? readDraft(draftKey) : null
         const ids = new Set(d.students.map((s) => s.id))
@@ -126,8 +139,8 @@ export default function CallPage() {
           setEntries(base)
           setTouched(new Set())
           setRemark(d.call?.remark ?? '')
-          setReason('')
-          setEditing(false)
+          setReason(pending.length ? 'Élève accueilli ajouté (répartition modifiée)' : '')
+          setEditing(!!d.call && pending.length > 0)
           setRestored(false)
         }
         setShowRemark(!!d.call?.remark)
@@ -218,6 +231,16 @@ export default function CallPage() {
   const counts = new Map<string, number>()
   for (const v of Object.values(entries)) counts.set(v, (counts.get(v) ?? 0) + 1)
   const isToday = date === parisToday()
+  const pendingCount = data.students.filter((s) => s.pending).length
+  const hostedCount = data.students.filter((s) => s.hostedFrom).length
+  // Élèves de la classe d'abord, puis une section par classe d'origine (élèves accueillis).
+  const groups: { id: string; name: string; list: CallData['students'] }[] = []
+  for (const s of data.students) {
+    const id = s.hostedFrom?.id ?? ''
+    let g = groups.find((x) => x.id === id)
+    if (!g) groups.push((g = { id, name: s.hostedFrom?.name ?? '', list: [] }))
+    g.list.push(s)
+  }
   const name = (id: string) => {
     const s = data.students.find((x) => x.id === id)
     return s ? `${s.firstName} ${s.lastName ?? ''}`.trim() : 'Élève'
@@ -233,9 +256,10 @@ export default function CallPage() {
       >
         <ArrowLeft className="size-4" aria-hidden /> Retour
       </button>
-      {(data.messages.length > 0 || (data.remindedAt && !data.call)) && (
+      {(data.messages.length > 0 || data.notices.length > 0 || (data.remindedAt && !data.call)) && (
         <div className="mb-3 grid gap-2">
-          {data.remindedAt && !data.call && !data.noCallReason && <ReminderNotice at={data.remindedAt} />}
+          {data.remindedAt && !data.call && !data.noCallReason && data.students.length > 0 && <ReminderNotice at={data.remindedAt} />}
+          <DistributionNotices notices={data.notices} />
           <MessageList messages={data.messages} />
         </div>
       )}
@@ -245,6 +269,16 @@ export default function CallPage() {
           <p className="font-semibold">Pas d’appel</p>
           <p className="mt-1 text-sm text-muted">{data.noCallReason}</p>
         </Card>
+      ) : data.students.length === 0 && data.distributed.length > 0 ? (
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-3">
+          <Card className="text-center">
+            <p className="inline-flex items-center gap-2 font-semibold">
+              <Shuffle className="size-5 text-primary" aria-hidden /> Classe répartie : pas d’appel à faire ici
+            </p>
+            <p className="mt-1 text-sm text-muted">Vos élèves sont dans l’appel des classes d’accueil. Leur présence remonte ci-dessous.</p>
+          </Card>
+          <Registry rows={data.distributed} />
+        </div>
       ) : data.students.length === 0 ? (
         <Card className="text-center">
           <p className="font-semibold">Aucun élève attendu sur ce créneau</p>
@@ -281,11 +315,29 @@ export default function CallPage() {
             </p>
           )}
           {editing && <p className="text-sm font-medium text-primary-strong">Mode correction : touchez les élèves à modifier.</p>}
+          {data.call && pendingCount > 0 && (
+            <p role="status" className="rounded-xl bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
+              Répartition modifiée : {pendingCount} élève{pendingCount > 1 ? 's' : ''} accueilli{pendingCount > 1 ? 's' : ''} ajouté{pendingCount > 1 ? 's' : ''} après la
+              validation. Vérifiez-{pendingCount > 1 ? 'les' : 'le'} puis enregistrez la correction.
+            </p>
+          )}
 
-          <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-            {data.students.map((s) => {
+          {groups.map((g) => (
+            <section
+              key={g.id || 'own'}
+              aria-label={g.id ? `Élèves accueillis de ${g.name}` : 'Élèves de la classe'}
+              className={g.id ? 'rounded-2xl border-2 border-dashed border-primary/30 bg-surface/60 p-3' : ''}
+            >
+              {g.id && (
+                <h2 className="mb-2 flex flex-wrap items-center gap-2 font-semibold text-primary-strong">
+                  <Shuffle className="size-4" aria-hidden /> Élèves accueillis · {g.name}
+                  <span className="text-sm font-normal text-muted">({g.list.length})</span>
+                </h2>
+              )}
+              <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                {g.list.map((s) => {
               const st = statusById.get(entries[s.id])
-              const unverified = !data.call && !touched.has(s.id)
+              const unverified = (!data.call || s.pending) && !touched.has(s.id)
               const planned = !data.call ? data.plannedAbsences[s.id] : undefined
               const tone = st ? STATUS_COLOR_CLASSES[st.color] : 'bg-slate-300'
               return (
@@ -294,7 +346,7 @@ export default function CallPage() {
                     type="button"
                     onClick={() => tap(s.id)}
                     disabled={locked}
-                    aria-label={`${s.firstName} ${s.lastName ?? ''} : ${st?.label ?? '?'}${planned ? `, absence prévue (${planned})` : ''}${unverified ? ', à vérifier' : ''}${locked ? '' : '. Toucher pour changer.'}`}
+                    aria-label={`${s.firstName} ${s.lastName ?? ''}${s.hostedFrom ? ` (accueilli, ${s.hostedFrom.name})` : ''} : ${st?.label ?? '?'}${planned ? `, absence prévue (${planned})` : ''}${unverified ? ', à vérifier' : ''}${locked ? '' : '. Toucher pour changer.'}`}
                     className={[
                       'flex min-h-16 w-full items-center gap-2.5 rounded-xl bg-white px-3 py-2 text-left ring-1 transition-colors disabled:cursor-default',
                       st?.category === 'ABSENT' ? 'bg-danger/8 ring-danger/50' : st?.category === 'AUTRE' ? 'ring-amber-300' : 'ring-success/35',
@@ -311,6 +363,7 @@ export default function CallPage() {
                         {s.lastName ? `${s.lastName} · ` : ''}
                         {st?.label}
                       </span>
+                      {s.pending && <span className="block truncate text-xs font-semibold text-primary-strong">Nouvel élève accueilli</span>}
                       {planned && (
                         <span className="block truncate text-xs font-semibold text-amber-800" title={planned}>
                           Absence prévue
@@ -355,7 +408,10 @@ export default function CallPage() {
                 </li>
               )
             })}
-          </ul>
+              </ul>
+            </section>
+          ))}
+          {data.distributed.length > 0 && <Registry rows={data.distributed} />}
 
           {(showRemark || !locked) && (
             <div>
@@ -414,7 +470,7 @@ export default function CallPage() {
                         {r.reason && <p className="text-muted">Motif : {r.reason}</p>}
                         {r.changes?.map((c) => (
                           <p key={c.studentId} className="text-muted">
-                            {name(c.studentId)} : {statusById.get(c.from)?.label ?? '?'} → {statusById.get(c.to)?.label ?? '?'}
+                            {name(c.studentId)} : {c.from ? (statusById.get(c.from)?.label ?? '?') : 'ajouté (élève accueilli)'} → {statusById.get(c.to)?.label ?? '?'}
                           </p>
                         ))}
                       </li>
@@ -441,7 +497,10 @@ export default function CallPage() {
                     {counts.get(s.id) ?? 0} {pluralLabel(s.label, counts.get(s.id) ?? 0)}
                   </span>
                 ))}
-              <span className="inline-flex items-center px-1 text-muted">/ {data.students.length}</span>
+              <span className="inline-flex items-center px-1 text-muted">
+                / {data.students.length}
+                {hostedCount > 0 && ` dont ${hostedCount} accueilli${hostedCount > 1 ? 's' : ''}`}
+              </span>
             </div>
             {locked ? (
               notice && <span className="text-sm font-semibold text-success-ink">{notice}</span>
@@ -467,5 +526,43 @@ export default function CallPage() {
         </div>
       )}
     </Shell>
+  )
+}
+
+/** Registre de la classe d'origine : où sont ses élèves répartis et l'état saisi par la classe d'accueil. */
+function Registry({ rows }: { rows: CallData['distributed'] }) {
+  const done = rows.filter((r) => r.status || r.hostName === null).length
+  return (
+    <section aria-labelledby="registry">
+      <h2 id="registry" className="mb-2 flex flex-wrap items-center gap-2 font-semibold">
+        <Shuffle className="size-4 text-primary" aria-hidden /> Vos élèves répartis
+        <span className="text-sm font-normal text-muted">
+          ({done}/{rows.length} confirmés)
+        </span>
+      </h2>
+      <Card flush>
+        <ul className="divide-y divide-line text-sm">
+          {rows.map((r) => (
+            <li key={r.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-4 py-2.5">
+              <span className="font-medium">{`${r.firstName} ${r.lastName ?? ''}`.trim()}</span>
+              <span className="text-muted">
+                {r.hostName === null ? (
+                  'Absent connu'
+                ) : (
+                  <>
+                    en {r.hostName} ·{' '}
+                    {r.status ? (
+                      <strong className={r.category === 'PRESENT' ? 'text-success-ink' : 'text-danger-ink'}>{r.status}</strong>
+                    ) : (
+                      'appel pas encore fait'
+                    )}
+                  </>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </Card>
+    </section>
   )
 }

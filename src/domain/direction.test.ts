@@ -33,7 +33,7 @@ describe('onglets matin / après-midi / autres créneaux', () => {
       { state: 'late', counts: null },
       { state: 'pending', counts: null },
     ])
-    expect(k).toEqual({ expected: 4, validated: 2, pending: 1, late: 1, present: 41, absent: 3, other: 1 })
+    expect(k).toEqual({ expected: 4, validated: 2, pending: 1, late: 1, distributed: 0, present: 41, absent: 3, other: 1 })
   })
 })
 

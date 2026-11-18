@@ -6,7 +6,8 @@ import type { HalfDay } from './schedule'
 
 // ---------- État d'un appel sur le tableau de bord ----------
 
-export type CallState = 'validated' | 'pending' | 'late'
+/** 'distributed' : classe entièrement répartie, les classes d'accueil font l'appel (lot 5). */
+export type CallState = 'validated' | 'pending' | 'late' | 'distributed'
 
 /**
  * Validé ; en attente ; ou en retard : jour passé non fait, ou heure limite dépassée aujourd'hui.
@@ -44,7 +45,7 @@ export interface DashRowSummary {
 
 /** Indicateurs d'un onglet : appels attendus, validés, en attente, en retard, présents, absents. */
 export function summarize(rows: DashRowSummary[]) {
-  const k = { expected: rows.length, validated: 0, pending: 0, late: 0, present: 0, absent: 0, other: 0 }
+  const k = { expected: rows.length, validated: 0, pending: 0, late: 0, distributed: 0, present: 0, absent: 0, other: 0 }
   for (const r of rows) {
     k[r.state]++
     if (r.counts) {

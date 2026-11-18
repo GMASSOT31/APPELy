@@ -19,6 +19,9 @@ import Dashboard from './pages/Dashboard'
 import Messages from './pages/Messages'
 import Absences from './pages/Absences'
 import HistoryPage from './pages/History'
+import Distributions from './pages/Distributions'
+import DistributionEditor from './pages/DistributionEditor'
+import DistributionDetail from './pages/DistributionDetail'
 
 function Home() {
   const { me, loading } = useSession()
@@ -50,6 +53,10 @@ export default function App() {
           <Route path="/admin" element={<Protected><Admin /></Protected>} />
           <Route path="/ecole/:schoolId" element={<Protected><Dashboard /></Protected>} />
           <Route path="/ecole/:schoolId/classes" element={<Protected><SchoolClasses /></Protected>} />
+          <Route path="/ecole/:schoolId/repartitions" element={<Protected><Distributions /></Protected>} />
+          <Route path="/ecole/:schoolId/repartitions/nouvelle" element={<Protected><DistributionEditor key="new" /></Protected>} />
+          <Route path="/ecole/:schoolId/repartitions/:planId" element={<Protected><DistributionDetail /></Protected>} />
+          <Route path="/ecole/:schoolId/repartitions/:planId/modifier" element={<Protected><DistributionEditor key="edit" /></Protected>} />
           <Route path="/ecole/:schoolId/messages" element={<Protected><Messages /></Protected>} />
           <Route path="/ecole/:schoolId/absences" element={<Protected><Absences /></Protected>} />
           <Route path="/ecole/:schoolId/historique" element={<Protected><HistoryPage /></Protected>} />

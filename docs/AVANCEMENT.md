@@ -7,7 +7,7 @@
 | 2 / Classes + élèves | Niveaux, jours, créneaux, états, import CSV/XLSX | **Fait** (voir ci-dessous) |
 | 3 / Appel enseignant | Grille, compteurs, validation, persistance, corrections | **Fait** (voir ci-dessous) |
 | 4 / Direction | Dashboard temps réel, historique, messages, rappels | **Fait** (voir ci-dessous) |
-| 5 / Répartitions | Algorithme, édition, affectations, synchronisation | Algorithme fait et testé, reste à faire |
+| 5 / Répartitions | Algorithme, édition, affectations, synchronisation | **Fait** (voir ci-dessous) |
 | 6 / Finalisation | Exports, PWA, audit sécurité, a11y | À faire |
 | 7 / Pilote | Scénarios E2E, docs, déploiement de test | À faire |
 
@@ -94,7 +94,7 @@ une classe, absence prévue, appel enseignant avec message + relance + absence p
   Le tableau de bord est la page d’accueil (les classes sont passées sous `/ecole/:id/classes`).
 - Tableau de bord « Aujourd’hui » : onglets Matin / Après-midi / Autres créneaux (le 1er créneau du matin et
   de l’après-midi de chaque classe va dans son onglet, les créneaux supplémentaires dans « Autres ») ; indicateurs
-  (classes attendues, validés, en attente, en retard, présents, absents, répartitions actives = 0 jusqu’au lot 5) ;
+  (classes attendues, validés, en attente, en retard, présents, absents, répartitions actives — branché au lot 5) ;
   liste par niveau : état, heure de validation, enseignant, effectifs, aperçu des absents, absences prévues ;
   boutons « Ouvrir l’appel », « Message », « Relancer ». Alerte rouge dès qu’un appel n’est pas fait après
   l’heure limite (jour passé non fait = en retard).
@@ -123,6 +123,59 @@ une classe, absence prévue, appel enseignant avec message + relance + absence p
 - Le bouton « Retour » de l’écran d’appel revient à la page d’origine (accueil, tableau de bord ou historique).
 - L’accueil enseignant s’actualise toutes les 60 s (relances, messages) sans rouvrir l’appel automatiquement.
 
+## Lot 5 — vérifié
+
+Tests : `tests/distributions.test.ts` (20 tests API sur D1 locale, scénario de recette CE1 A → CP A / CE1 B / CE2 A,
+tests négatifs inter-écoles), `src/domain/repartition.test.ts` (9 tests de règles), soit 134 tests au total ; parcours
+navigateur (31 contrôles, ordinateur 1280 px et téléphone 360 px sans défilement horizontal) : P6 (24 élèves répartis
+entre 3 classes, 30/30/30, aucun oubli ni doublon), P7 (section « Élèves accueillis », présences remontées à CE1 A),
+P8 (modification propagée, historisée, classes informées, pas de double présence), historique filtré, annulation, impression.
+
+- « Répartir une classe » (Direction, bouton sur le tableau de bord et onglet « Répartitions ») : classe d’origine,
+  dates (14 jours au plus), journée / matin / après-midi ; classes d’accueil cochées avec leur effectif habituel sur la
+  période et une capacité facultative ; « Proposer une répartition équilibrée » (algorithme du lot 0, sur l’effectif
+  projeté) ; correction élève par élève par un menu accessible au clavier (y compris « Absent connu, ne pas répartir ») ;
+  les choix manuels sont conservés lors d’un nouvel équilibrage ; aperçu final par classe ; validation bloquée tant
+  qu’un élève n’est pas placé ou qu’une capacité est dépassée (revérifié par le serveur).
+- Affectations par élève et demi-journée (`distribution_assignments`) : **index unique « une seule affectation active
+  par élève et créneau »** en base, toutes répartitions confondues ; la classe d’inscription ne change pas ; une
+  affectation remplacée est terminée (datée), jamais effacée. Pas de chaîne : une classe répartie n’accueille pas,
+  une classe d’accueil n’est pas elle-même répartie. Création idempotente (double tap), modification concurrente refusée.
+- Appel des classes d’accueil : les élèves accueillis apparaissent automatiquement, dans une section délimitée
+  « Élèves accueillis · CE1 A » (une par classe d’origine), compteur « / 30 dont 10 accueillis ». L’état saisi est
+  enregistré avec la classe d’origine (`attendance_entries.hosted_from_class_id`).
+- Classe d’origine : ses élèves répartis sont retirés de son appel (pas de double présence) ; si tous le sont, l’écran
+  affiche « Classe répartie : pas d’appel à faire ici » et le registre « Vos élèves répartis » (classe d’accueil + état
+  remonté, ou « appel pas encore fait »).
+- Tableau de bord : indicateur « Répartitions actives », classe d’origine marquée « Répartie · 18/24 confirmés » (au lieu
+  de « en retard »), détail « Appels des élèves répartis : CP A 10/10 · CE1 B 0/6 · CE2 A 0/8 », classes d’accueil
+  « dont 10 élèves accueillis (CE1 A) », bouton « Voir la répartition ». Couverture complète quand chaque élève a un
+  état dans un appel validé de sa classe d’accueil ou était connu absent.
+- Modification / annulation : propagées immédiatement aux appels ; un élève déjà compté dans un appel validé (ou une
+  demi-journée passée) garde son affectation pour cette demi-journée — le changement s’applique au créneau suivant,
+  et la direction en est avertie. Si un élève est ajouté à une classe d’accueil après sa validation, l’appel s’ouvre en
+  correction avec « Nouvel élève accueilli ». Historique des versions (qui, quand, élèves déplacés).
+- Notifications internes (`distribution_notices`) aux classes concernées (origine et accueil) à chaque création,
+  modification ou annulation : accueil enseignant et écran d’appel, jamais en fenêtre bloquante.
+- Détail d’une répartition : présences remontées par demi-journée, « Où sont les élèves », feuilles de répartition
+  imprimables par classe (prénom, nom, classe d’origine uniquement), « Modifier », « Annuler la répartition »,
+  « Refaire le … » (prochain jour d’école, reprend la dernière répartition), « Reprendre la dernière répartition » dans
+  l’éditeur.
+- Historique : filtre « Seulement les répartitions », état « Répartie » avec sa couverture, badge « +10 accueillis ».
+- Coût D1 : au plus ~25 requêtes par appel d’API (création d’une répartition ~16, écran d’appel ~22), insertions
+  en masse par `json_each`, écritures en un seul lot transactionnel.
+
+### Choix faits en autonomie (lot 5)
+
+- Unité de « créneau » d’une répartition = demi-journée (matin / après-midi) ; un élève garde la même classe d’accueil
+  sur toute la période ; durée maximale 14 jours.
+- « Exclusions manuelles » de l’algorithme : remplacées par les choix manuels épinglés (conservés au rééquilibrage)
+  et l’option « Absent connu ». Le glisser-déposer (facultatif au cahier des charges) n’est pas proposé : le menu
+  par élève est plus sûr au clavier et sur téléphone.
+- L’effectif habituel d’une classe d’accueil est le maximum sur la période (élèves déjà accueillis ailleurs compris).
+- Un élève « absent connu » compte comme confirmé (absence résolue) dans la couverture, sans ligne d’appel.
+- La création et la gestion des répartitions sont réservées à la direction.
+
 ## Écarts au cahier des charges (assumés)
 
 - **Cloudflare D1 au lieu de Supabase** (quota de projets Supabase atteint). D1 n'a pas de RLS : le
@@ -138,6 +191,6 @@ une classe, absence prévue, appel enseignant avec message + relance + absence p
 
 - Actualisation par sondage (30 s) plutôt que temps réel par connexion permanente : plus simple et compatible
   avec l’offre gratuite Cloudflare ; suffisant pour le suivi du matin.
-- Exports PDF/CSV de l’historique, filtre « répartition » : lots 5 et 6.
+- Exports PDF/CSV de l’historique : lot 6 (le filtre « répartition » est fait au lot 5).
 - Mode hors ligne complet : lot 6 (aujourd'hui, brouillon local seulement ; la validation exige le réseau).
 - Localisation des données D1 : à vérifier dans le tableau de bord Cloudflare (juridiction UE souhaitée).

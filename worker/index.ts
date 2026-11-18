@@ -38,6 +38,14 @@ import {
 import { getCall, myDay, validateCall } from './routes/calls'
 import { archiveMessage, createMessage, getDashboard, getHistory, listMessages, remindCall } from './routes/direction'
 import { cancelAbsence, createAbsence, listAbsences } from './routes/absences'
+import {
+  cancelDistribution,
+  createDistribution,
+  getDistribution,
+  listDistributions,
+  prepareDistribution,
+  updateDistribution,
+} from './routes/distributions'
 
 type Handler = (env: Env, req: Request, params: string[], origin: string) => Promise<Response>
 
@@ -103,6 +111,13 @@ const routes: [string, RegExp, Handler][] = [
   ['POST', new RegExp(`^/api/schools/${ID}/absences$`), (env, req, [s]) => createAbsence(env, req, s)],
   ['POST', new RegExp(`^/api/schools/${ID}/absences/${ID}/cancel$`), (env, req, [s, a]) => cancelAbsence(env, req, s, a)],
   ['GET', new RegExp(`^/api/schools/${ID}/history$`), (env, req, [s]) => getHistory(env, req, s)],
+  // Lot 5 : répartitions temporaires
+  ['GET', new RegExp(`^/api/schools/${ID}/distributions$`), (env, req, [s]) => listDistributions(env, req, s)],
+  ['GET', new RegExp(`^/api/schools/${ID}/distributions/prepare$`), (env, req, [s]) => prepareDistribution(env, req, s)],
+  ['POST', new RegExp(`^/api/schools/${ID}/distributions$`), (env, req, [s]) => createDistribution(env, req, s)],
+  ['GET', new RegExp(`^/api/schools/${ID}/distributions/${ID}$`), (env, req, [s, p]) => getDistribution(env, req, s, p)],
+  ['POST', new RegExp(`^/api/schools/${ID}/distributions/${ID}$`), (env, req, [s, p]) => updateDistribution(env, req, s, p)],
+  ['POST', new RegExp(`^/api/schools/${ID}/distributions/${ID}/cancel$`), (env, req, [s, p]) => cancelDistribution(env, req, s, p)],
 ]
 
 export async function handleApi(req: Request, env: Env): Promise<Response> {

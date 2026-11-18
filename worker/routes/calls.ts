@@ -5,6 +5,7 @@ import { ensureDefaultStatuses } from './settings'
 import { messagesForClass, publicMessage, schoolToday, visibleMessagesQuery, type MessageRow } from '../lib/day'
 import { plannedCovers, sortMessages, type PlannedHalfDays } from '../../src/domain/direction'
 import { closureFor, isExpected, isoWeekday, isValidDate, type HalfDay } from '../../src/domain/schedule'
+import { latestNotices, noticesQuery } from './distributions'
 
 export const REMARK_MAX = 200
 
@@ -42,6 +43,16 @@ async function requireCallAccess(env: Env, u: CurrentUser, schoolId: string, cla
   return { membership: m, cls }
 }
 
+interface CallStudent {
+  id: string
+  first_name: string
+  last_name: string | null
+  /** Classe d'origine d'un élève accueilli (répartition), sinon null. */
+  hosted_from: string | null
+  /** Élève accueilli ajouté après la validation : à intégrer par une correction. */
+  pending?: boolean
+}
+
 interface StudentRow {
   id: string
   first_name: string
@@ -54,7 +65,10 @@ interface StudentRow {
 /** Tout ce qu'il faut pour afficher ou valider un appel : élèves attendus, états, appel existant. */
 async function loadCall(env: Env, schoolId: string, classId: string, date: string, slotId: string) {
   await ensureDefaultStatuses(env, schoolId)
-  const [schoolR, slotR, closuresR, studentsR, schedulesR, statusesR, callR, messagesR, plannedR, reminderR] = await env.DB.batch([
+  // Lot 5 : élèves accueillis ici (répartition) sur cette date.
+  const hostedSub = 'SELECT student_id FROM distribution_assignments WHERE host_class_id = ? AND slot_date = ? AND ended_at IS NULL'
+  const [schoolR, slotR, closuresR, studentsR, schedulesR, statusesR, callR, messagesR, plannedR, reminderR, assignR, hostedR, registryR, classNamesR] =
+    await env.DB.batch([
     env.DB.prepare('SELECT closed_weekdays, timezone FROM schools WHERE id = ?').bind(schoolId),
     env.DB.prepare('SELECT id, class_id, name, half_day, weekdays, due_time, archived_at FROM call_slots WHERE id = ? AND class_id = ? AND school_id = ?').bind(
       slotId,
@@ -68,8 +82,9 @@ async function loadCall(env: Env, schoolId: string, classId: string, date: strin
     ),
     env.DB.prepare('SELECT id, first_name, last_name, class_id, active_from, active_to FROM students WHERE class_id = ?').bind(classId),
     env.DB.prepare(
-      'SELECT ss.student_id, ss.valid_from, ss.pattern FROM student_schedules ss JOIN students s ON s.id = ss.student_id WHERE s.class_id = ?',
-    ).bind(classId),
+      `SELECT ss.student_id, ss.valid_from, ss.pattern FROM student_schedules ss JOIN students s ON s.id = ss.student_id
+        WHERE s.class_id = ? OR s.id IN (${hostedSub})`,
+    ).bind(classId, classId, date),
     env.DB.prepare(
       'SELECT id, label, color, category, position, archived_at FROM attendance_statuses WHERE school_id = ? ORDER BY position',
     ).bind(schoolId),
@@ -78,9 +93,22 @@ async function loadCall(env: Env, schoolId: string, classId: string, date: strin
     visibleMessagesQuery(env, schoolId, date),
     env.DB.prepare(
       `SELECT pa.student_id, pa.start_date, pa.end_date, pa.half_days, pa.reason FROM planned_absences pa JOIN students s ON s.id = pa.student_id
-        WHERE s.class_id = ? AND pa.cancelled_at IS NULL AND pa.start_date <= ? AND pa.end_date >= ?`,
-    ).bind(classId, date, date),
+        WHERE (s.class_id = ? OR s.id IN (${hostedSub})) AND pa.cancelled_at IS NULL AND pa.start_date <= ? AND pa.end_date >= ?`,
+    ).bind(classId, classId, date, date, date),
     env.DB.prepare('SELECT MAX(sent_at) AS at FROM call_reminders WHERE class_id = ? AND slot_id = ? AND slot_date = ?').bind(classId, slotId, date),
+    // Lot 5 : affectations du jour (élèves partis ailleurs ou accueillis ici), élèves accueillis,
+    // et états saisis pour nos élèves dans les appels des classes d'accueil (registre de la classe d'origine).
+    env.DB.prepare(
+      `SELECT student_id, host_class_id, source_class_id, half_day FROM distribution_assignments
+        WHERE slot_date = ? AND ended_at IS NULL AND (source_class_id = ? OR host_class_id = ?)`,
+    ).bind(date, classId, classId),
+    env.DB.prepare(`SELECT id, first_name, last_name, class_id, active_from, active_to FROM students WHERE id IN (${hostedSub})`).bind(classId, date),
+    env.DB.prepare(
+      `SELECT e.student_id, c.class_id, sl.half_day, st.label, st.category FROM attendance_entries e
+         JOIN attendance_calls c ON c.id = e.call_id JOIN call_slots sl ON sl.id = c.slot_id JOIN attendance_statuses st ON st.id = e.status_id
+        WHERE c.slot_date = ? AND c.school_id = ? AND e.hosted_from_class_id = ?`,
+    ).bind(date, schoolId, classId),
+    env.DB.prepare('SELECT id, name FROM classes WHERE school_id = ?').bind(schoolId),
   ])
   const school = schoolR.results[0] as { closed_weekdays: number; timezone: string }
   const slot = slotR.results[0] as Slot | undefined
@@ -101,28 +129,65 @@ async function loadCall(env: Env, schoolId: string, classId: string, date: strin
 
   const schedules = schedulesR.results as { student_id: string; valid_from: string; pattern: number | null }[]
   const half = slot.half_day
-  const expected = (studentsR.results as StudentRow[]).filter((s) =>
-    isExpected({ ...s, schedules: schedules.filter((x) => x.student_id === s.id) }, date, half),
+  const expectedNow = (s: StudentRow) => isExpected({ ...s, schedules: schedules.filter((x) => x.student_id === s.id) }, date, half)
+  const classNames = new Map((classNamesR.results as { id: string; name: string }[]).map((c) => [c.id, c.name]))
+  const assignments = (assignR.results as { student_id: string; host_class_id: string | null; source_class_id: string; half_day: HalfDay }[]).filter(
+    (a) => a.half_day === half,
   )
+  // Nos élèves répartis ailleurs (ou absents connus) ne sont pas dans notre appel : pas de double présence.
+  const away = new Map(assignments.filter((a) => a.source_class_id === classId).map((a) => [a.student_id, a.host_class_id]))
+  const hostedFrom = new Map(assignments.filter((a) => a.host_class_id === classId).map((a) => [a.student_id, a.source_class_id]))
+  const own = (studentsR.results as StudentRow[]).filter(expectedNow)
+  const hosted = (hostedR.results as StudentRow[]).filter((s) => hostedFrom.has(s.id) && expectedNow(s))
 
   let entries: Record<string, string> = {}
-  let students: { id: string; first_name: string; last_name: string | null }[] = expected
+  let students: CallStudent[] = [
+    ...own.filter((s) => !away.has(s.id)).map((s) => ({ id: s.id, first_name: s.first_name, last_name: s.last_name, hosted_from: null })),
+    ...hosted.map((s) => ({ id: s.id, first_name: s.first_name, last_name: s.last_name, hosted_from: hostedFrom.get(s.id)! })),
+  ]
   if (call) {
     // Appel déjà validé : on garde exactement la liste enregistrée (contexte conservé même si
     // un élève a changé de classe ou d'emploi du temps depuis).
     const { results } = await env.DB.prepare(
-      `SELECT e.student_id, e.status_id, s.first_name, s.last_name FROM attendance_entries e JOIN students s ON s.id = e.student_id
+      `SELECT e.student_id, e.status_id, e.hosted_from_class_id, s.first_name, s.last_name FROM attendance_entries e JOIN students s ON s.id = e.student_id
         WHERE e.call_id = ?`,
     )
       .bind(call.id)
-      .all<{ student_id: string; status_id: string; first_name: string; last_name: string | null }>()
+      .all<{ student_id: string; status_id: string; hosted_from_class_id: string | null; first_name: string; last_name: string | null }>()
     entries = Object.fromEntries(results.map((r) => [r.student_id, r.status_id]))
-    students = results.map((r) => ({ id: r.student_id, first_name: r.first_name, last_name: r.last_name }))
+    // Élèves accueillis ajoutés par une modification de répartition après la validation : à intégrer par une correction.
+    const newcomers = students.filter((s) => s.hosted_from && !(s.id in entries)).map((s) => ({ ...s, pending: true }))
+    students = [
+      ...results.map((r) => ({ id: r.student_id, first_name: r.first_name, last_name: r.last_name, hosted_from: r.hosted_from_class_id })),
+      ...newcomers,
+    ]
   }
-  // Ordre stable et reconnaissable : prénom puis nom.
+  // Ordre stable et reconnaissable : élèves de la classe, puis élèves accueillis par classe d'origine ; prénom puis nom.
   students = [...students].sort(
-    (a, b) => a.first_name.localeCompare(b.first_name, 'fr', { sensitivity: 'base' }) || (a.last_name ?? '').localeCompare(b.last_name ?? '', 'fr'),
+    (a, b) =>
+      Number(!!a.hosted_from) - Number(!!b.hosted_from) ||
+      (classNames.get(a.hosted_from ?? '') ?? '').localeCompare(classNames.get(b.hosted_from ?? '') ?? '', 'fr', { numeric: true }) ||
+      a.first_name.localeCompare(b.first_name, 'fr', { sensitivity: 'base' }) ||
+      (a.last_name ?? '').localeCompare(b.last_name ?? '', 'fr'),
   )
+  // Registre de la classe d'origine : où sont nos élèves répartis et leur état remonté des classes d'accueil.
+  const registry = registryR.results as { student_id: string; class_id: string; half_day: HalfDay; label: string; category: string }[]
+  const distributed = own
+    .filter((s) => away.has(s.id))
+    .map((s) => {
+      const host = away.get(s.id) ?? null
+      const st = host ? registry.find((r) => r.student_id === s.id && r.class_id === host && r.half_day === half) : undefined
+      return {
+        id: s.id,
+        firstName: s.first_name,
+        lastName: s.last_name,
+        hostClassId: host,
+        hostName: host ? (classNames.get(host) ?? '?') : null,
+        status: st?.label ?? null,
+        category: st?.category ?? null,
+      }
+    })
+    .sort((a, b) => a.firstName.localeCompare(b.firstName, 'fr', { sensitivity: 'base' }))
 
   const weekdayOk = (slot.weekdays & (1 << (isoWeekday(date) - 1))) !== 0
   const closure = closureFor(date, school.closed_weekdays, closuresR.results as { start_date: string; end_date: string; label: string }[])
@@ -140,6 +205,8 @@ async function loadCall(env: Env, schoolId: string, classId: string, date: strin
     remindedAt: (reminderR.results[0] as { at: string | null } | undefined)?.at ?? null,
     entries,
     students,
+    classNames,
+    distributed,
     statuses: statusesR.results as { id: string; label: string; color: string; category: string; position: number; archived_at: string | null }[],
     noCallReason,
   }
@@ -190,7 +257,16 @@ export async function getCall(env: Env, req: Request, schoolId: string, classId:
     statuses: d.statuses
       .filter((s) => !s.archived_at || usedStatus.has(s.id))
       .map((s) => ({ id: s.id, label: s.label, color: s.color, category: s.category, active: !s.archived_at })),
-    students: d.students.map((s) => ({ id: s.id, firstName: s.first_name, lastName: s.last_name })),
+    students: d.students.map((s) => ({
+      id: s.id,
+      firstName: s.first_name,
+      lastName: s.last_name,
+      hostedFrom: s.hosted_from ? { id: s.hosted_from, name: d.classNames.get(s.hosted_from) ?? '?' } : null,
+      pending: !!s.pending,
+    })),
+    // Lot 5 : élèves de la classe répartis ailleurs aujourd'hui, avec l'état remonté de leur classe d'accueil.
+    distributed: d.distributed,
+    notices: latestNotices((await noticesQuery(env, [classId], date).all<{ plan_id: string; class_id: string; body: string; created_at: string }>()).results),
     messages: messagesForClass(d.messages, { id: cls.id, levels: JSON.parse(cls.levels) }, date).map(publicMessage),
     // Absences prévues des élèves de la liste : l'élève est prépositionné Absent mais reste « à vérifier ».
     plannedAbsences: Object.fromEntries(Object.entries(d.planned).filter(([id]) => d.students.some((s) => s.id === id))),
@@ -287,9 +363,9 @@ export async function validateCall(env: Env, req: Request, schoolId: string, cla
   stmts.push(
     env.DB.prepare(`DELETE FROM attendance_entries WHERE call_id = ? AND EXISTS (${guard})`).bind(callId, callId, requestId, version),
     env.DB.prepare(
-      `INSERT INTO attendance_entries (call_id, student_id, status_id)
-       SELECT ?, key, value FROM json_each(?) WHERE EXISTS (${guard})`,
-    ).bind(callId, JSON.stringify(entries), callId, requestId, version),
+      `INSERT INTO attendance_entries (call_id, student_id, status_id, hosted_from_class_id)
+       SELECT ?, json_extract(value, '$[0]'), json_extract(value, '$[1]'), json_extract(value, '$[2]') FROM json_each(?) WHERE EXISTS (${guard})`,
+    ).bind(callId, JSON.stringify(d.students.map((s) => [s.id, entries[s.id], s.hosted_from])), callId, requestId, version),
     // UNIQUE (call_id, version) : deux validations simultanées ne peuvent pas créer la même version.
     env.DB.prepare(
       `INSERT INTO attendance_revisions (id, call_id, version, actor_user_id, at, remark, reason, changes)
@@ -341,7 +417,9 @@ export async function myDay(env: Env, req: Request, schoolId: string) {
   const closure = closureFor(today, school!.closed_weekdays, closuresR.results as { start_date: string; end_date: string; label: string }[])
   const bit = 1 << (isoWeekday(today) - 1)
   const ids = JSON.stringify(classes.map((c) => c.id))
-  const [slotsR, callsR, remindersR, messagesR] = await env.DB.batch([
+  // Lot 5 : répartitions du jour (classes réparties, élèves accueillis) et notifications de changement.
+  const asgWhere = `slot_date = ? AND ended_at IS NULL AND (source_class_id IN (SELECT value FROM json_each(?)) OR host_class_id IN (SELECT value FROM json_each(?)))`
+  const [slotsR, callsR, remindersR, messagesR, asgR, stuR, schR, noticesR] = await env.DB.batch([
     env.DB.prepare(
       `SELECT id, class_id, name, half_day, due_time FROM call_slots
         WHERE class_id IN (SELECT value FROM json_each(?)) AND archived_at IS NULL AND (weekdays & ?) != 0 ORDER BY half_day, position`,
@@ -354,7 +432,36 @@ export async function myDay(env: Env, req: Request, schoolId: string) {
         GROUP BY class_id, slot_id`,
     ).bind(ids, today),
     visibleMessagesQuery(env, schoolId, today),
+    env.DB.prepare(`SELECT student_id, source_class_id, host_class_id, half_day FROM distribution_assignments WHERE ${asgWhere}`).bind(today, ids, ids),
+    env.DB.prepare(
+      `SELECT id, class_id, active_from, active_to FROM students
+        WHERE class_id IN (SELECT value FROM json_each(?)) OR id IN (SELECT student_id FROM distribution_assignments WHERE ${asgWhere})`,
+    ).bind(ids, today, ids, ids),
+    env.DB.prepare(
+      `SELECT ss.student_id, ss.valid_from, ss.pattern FROM student_schedules ss JOIN students s ON s.id = ss.student_id
+        WHERE s.class_id IN (SELECT value FROM json_each(?)) OR s.id IN (SELECT student_id FROM distribution_assignments WHERE ${asgWhere})`,
+    ).bind(ids, today, ids, ids),
+    noticesQuery(env, classes.map((c) => c.id), today),
   ])
+  const asg = asgR.results as { student_id: string; source_class_id: string; host_class_id: string | null; half_day: HalfDay }[]
+  const stu = new Map((stuR.results as { id: string; class_id: string; active_from: string; active_to: string | null }[]).map((x) => [x.id, x]))
+  const sch = schR.results as { student_id: string; valid_from: string; pattern: number | null }[]
+  const expectedToday = (id: string, half: HalfDay) => {
+    const x = stu.get(id)
+    return !!x && isExpected({ ...x, schedules: sch.filter((y) => y.student_id === id) }, today, half)
+  }
+  /** Pour un créneau : élèves de la classe encore attendus, élèves répartis ailleurs, élèves accueillis. */
+  const distributionOf = (classId: string, half: HalfDay) => {
+    const awayIds = new Set(asg.filter((a) => a.source_class_id === classId && a.half_day === half).map((a) => a.student_id))
+    const own = [...stu.values()].filter((x) => x.class_id === classId && expectedToday(x.id, half))
+    const hosted = asg.filter((a) => a.host_class_id === classId && a.half_day === half && expectedToday(a.student_id, half))
+    return {
+      remaining: own.filter((x) => !awayIds.has(x.id)).length,
+      away: own.filter((x) => awayIds.has(x.id)).length,
+      hostedFrom: [...new Set(hosted.map((a) => a.source_class_id))],
+      hosted: hosted.length,
+    }
+  }
   const calls = callsR.results as { class_id: string; slot_id: string; updated_at: string }[]
   const reminders = remindersR.results as { class_id: string; slot_id: string; at: string }[]
   // Mot de la direction : messages du jour qui concernent au moins une de ses classes (sans doublon).
@@ -366,9 +473,18 @@ export async function myDay(env: Env, req: Request, schoolId: string) {
       e.classes.push(c.name)
       messages.set(msg.id, e)
     }
+  const names = new Map(classes.map((c) => [c.id, c.name]))
+  if (asg.some((a) => !names.has(a.source_class_id))) {
+    const { results } = await env.DB.prepare('SELECT id, name FROM classes WHERE school_id = ?').bind(schoolId).all<{ id: string; name: string }>()
+    for (const r of results) names.set(r.id, r.name)
+  }
   return json({
     today,
     closure,
+    distributionNotices: latestNotices(noticesR.results as { plan_id: string; class_id: string; body: string; created_at: string }[]).map((x) => ({
+      ...x,
+      className: names.get(x.classId) ?? '?',
+    })),
     messages: sortMessages([...messages.values()].map((e) => ({ ...e.message, classes: e.classes }))).map((m) => ({ ...publicMessage(m), classes: m.classes })),
     classes: classes.map((c) => ({
       id: c.id,
@@ -380,7 +496,13 @@ export async function myDay(env: Env, req: Request, schoolId: string) {
             .map((s) => {
               const done = calls.find((x) => x.class_id === c.id && x.slot_id === s.id)
               const reminder = done ? undefined : reminders.find((x) => x.class_id === c.id && x.slot_id === s.id)
+              const dist = distributionOf(c.id, s.half_day as HalfDay)
               return {
+                // Classe entièrement répartie : pas d'appel à faire ici, les classes d'accueil s'en chargent.
+                distributed: !done && dist.away > 0 && dist.remaining === 0 && dist.hosted === 0,
+                awayCount: dist.away,
+                hostedCount: dist.hosted,
+                hostedFrom: dist.hostedFrom.map((id) => names.get(id) ?? '?'),
                 id: s.id,
                 name: s.name,
                 halfDay: s.half_day,

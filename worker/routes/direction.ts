@@ -3,6 +3,7 @@ import { newId } from '../lib/crypto'
 import { badRequest, conflict, json, notFound, readJson } from '../lib/http'
 import { publicMessage, schoolNowTime, schoolToday, scopeLabel, type MessageRow } from '../lib/day'
 import { closureFor, isExpected, isoWeekday, isValidDate, LEVELS, levelRank, type HalfDay } from '../../src/domain/schedule'
+import { coverageOf } from '../../src/domain/repartition'
 import {
   addDays,
   assignTabs,
@@ -60,6 +61,7 @@ interface CallCountRow {
   present: number
   absent: number
   other: number
+  hosted: number
 }
 type StudentLite = { id: string; class_id: string; active_from: string; active_to: string | null }
 type ScheduleLite = { student_id: string; valid_from: string; pattern: number | null }
@@ -72,7 +74,8 @@ function callsWithCounts(env: Env, schoolId: string, from: string, to: string) {
             (SELECT GROUP_CONCAT(DISTINCT r.actor_user_id) FROM attendance_revisions r WHERE r.call_id = c.id) AS actors,
             COALESCE(SUM(st.category = 'PRESENT'), 0) AS present,
             COALESCE(SUM(st.category = 'ABSENT'), 0) AS absent,
-            COALESCE(SUM(st.category = 'AUTRE'), 0) AS other
+            COALESCE(SUM(st.category = 'AUTRE'), 0) AS other,
+            COALESCE(SUM(e.hosted_from_class_id IS NOT NULL), 0) AS hosted
        FROM attendance_calls c
        JOIN users u ON u.id = c.updated_by
        LEFT JOIN attendance_entries e ON e.call_id = c.id
@@ -100,8 +103,74 @@ function expectedCounter(students: StudentLite[], schedules: ScheduleLite[]) {
   for (const s of schedules) byStudent.set(s.student_id, [...(byStudent.get(s.student_id) ?? []), s])
   const byClass = new Map<string, StudentLite[]>()
   for (const s of students) byClass.set(s.class_id, [...(byClass.get(s.class_id) ?? []), s])
-  return (classId: string, date: string, half: HalfDay) =>
+  const byId = new Map(students.map((s) => [s.id, s]))
+  const count = (classId: string, date: string, half: HalfDay) =>
     (byClass.get(classId) ?? []).filter((s) => isExpected({ ...s, schedules: byStudent.get(s.id) ?? [] }, date, half)).length
+  /** Un élève précis est-il attendu ce jour-là (répartitions : on ne compte que les élèves attendus) ? */
+  count.student = (id: string, date: string, half: HalfDay) => {
+    const s = byId.get(id)
+    return !!s && isExpected({ ...s, schedules: byStudent.get(id) ?? [] }, date, half)
+  }
+  return count
+}
+
+interface AssignmentLite {
+  plan_id: string
+  student_id: string
+  source_class_id: string
+  host_class_id: string | null
+  slot_date: string
+  half_day: HalfDay
+  category: string | null
+}
+
+/** Affectations actives d'une période, avec l'état saisi dans l'appel validé de la classe d'accueil. */
+function assignmentsQuery(env: Env, schoolId: string, from: string, to: string) {
+  return env.DB.prepare(
+    `SELECT a.plan_id, a.student_id, a.source_class_id, a.host_class_id, a.slot_date, a.half_day,
+            (SELECT st.category FROM attendance_entries e JOIN attendance_calls c ON c.id = e.call_id
+               JOIN call_slots sl ON sl.id = c.slot_id JOIN attendance_statuses st ON st.id = e.status_id
+              WHERE e.student_id = a.student_id AND c.class_id = a.host_class_id AND c.slot_date = a.slot_date AND sl.half_day = a.half_day
+              ORDER BY c.updated_at DESC LIMIT 1) AS category
+       FROM distribution_assignments a WHERE a.school_id = ? AND a.ended_at IS NULL AND a.slot_date BETWEEN ? AND ?`,
+  ).bind(schoolId, from, to)
+}
+
+/**
+ * Situation d'un créneau de classe vis-à-vis des répartitions : élèves répartis ailleurs (avec la
+ * couverture remontée des classes d'accueil), élèves accueillis, élèves encore attendus dans la classe.
+ */
+function distributionFor(
+  list: AssignmentLite[],
+  expected: ReturnType<typeof expectedCounter>,
+  names: Map<string, string>,
+  classId: string,
+  date: string,
+  half: HalfDay,
+) {
+  const here = list.filter((a) => a.slot_date === date && a.half_day === half && expected.student(a.student_id, date, half))
+  const away = here.filter((a) => a.source_class_id === classId)
+  const hosted = here.filter((a) => a.host_class_id === classId)
+  const own = expected(classId, date, half)
+  const cov = coverageOf(away.map((a) => ({ hostClassId: a.host_class_id, category: a.category })))
+  // Classes d'accueil dans l'ordre de l'école (names est construit dans l'ordre d'affichage).
+  const order = [...names.keys()]
+  const hostIds = [...new Set(away.map((a) => a.host_class_id).filter((x): x is string => !!x))].sort((x, y) => order.indexOf(x) - order.indexOf(y))
+  return {
+    remaining: Math.max(0, own - away.length),
+    hostedCount: hosted.length,
+    distribution: away.length
+      ? {
+          ...cov,
+          planId: away[0].plan_id,
+          hosts: hostIds.map((h) => {
+            const c = coverageOf(away.filter((a) => a.host_class_id === h).map((a) => ({ hostClassId: h, category: a.category })))
+            return { className: names.get(h) ?? '?', total: c.total, confirmed: c.confirmed }
+          }),
+        }
+      : null,
+    hosted: hosted.length ? { count: hosted.length, from: [...new Set(hosted.map((a) => names.get(a.source_class_id) ?? '?'))] } : null,
+  }
 }
 
 const fullName = (f: string, l: string | null) => `${f} ${l ?? ''}`.trim()
@@ -123,7 +192,7 @@ export async function getDashboard(env: Env, req: Request, schoolId: string) {
   const nowTime = schoolNowTime(school.timezone)
   const now = nowIso()
   const bit = 1 << (isoWeekday(date) - 1)
-  const [closuresR, classesR, teachersR, slotsR, callsR, absenteesR, studentsR, schedulesR, remindersR, plannedR] = await env.DB.batch([
+  const [closuresR, classesR, teachersR, slotsR, callsR, absenteesR, studentsR, schedulesR, remindersR, plannedR, assignR, plansR] = await env.DB.batch([
     env.DB.prepare('SELECT start_date, end_date, label FROM school_closures WHERE school_id = ? AND start_date <= ? AND end_date >= ?').bind(
       schoolId,
       date,
@@ -156,6 +225,12 @@ export async function getDashboard(env: Env, req: Request, schoolId: string) {
       `SELECT s.class_id, pa.start_date, pa.end_date, pa.half_days FROM planned_absences pa JOIN students s ON s.id = pa.student_id
         WHERE pa.school_id = ? AND pa.cancelled_at IS NULL AND pa.start_date <= ? AND pa.end_date >= ?`,
     ).bind(schoolId, date, date),
+    // Lot 5 : répartitions du jour.
+    assignmentsQuery(env, schoolId, date, date),
+    env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM distribution_plans WHERE school_id = ? AND state = 'active' AND start_date <= ? AND end_date >= ?
+          AND EXISTS (SELECT 1 FROM distribution_assignments a WHERE a.plan_id = distribution_plans.id AND a.slot_date = ? AND a.ended_at IS NULL)`,
+    ).bind(schoolId, date, date, date),
   ])
   const closure = closureFor(date, school.closed_weekdays, closuresR.results as { start_date: string; end_date: string; label: string }[])
   const classes = new Map((classesR.results as ClassRow[]).map((c) => [c.id, { ...c, levelList: JSON.parse(c.levels) as string[] }]))
@@ -168,12 +243,21 @@ export async function getDashboard(env: Env, req: Request, schoolId: string) {
   const expected = expectedCounter(studentsR.results as StudentLite[], schedulesR.results as ScheduleLite[])
   const reminders = remindersR.results as { class_id: string; slot_id: string; at: string }[]
   const planned = plannedR.results as { class_id: string; start_date: string; end_date: string; half_days: PlannedHalfDays }[]
+  const assignments = assignR.results as AssignmentLite[]
+  const classNames = new Map(
+    [...classes.values()]
+      .sort((x, y) => levelRank(x.levelList) - levelRank(y.levelList) || x.name.localeCompare(y.name, 'fr', { numeric: true }))
+      .map((c) => [c.id, c.name]),
+  )
 
   const rows = closure
     ? []
     : slots.map((s) => {
         const cls = classes.get(s.class_id)!
         const call = calls.find((c) => c.class_id === s.class_id && c.slot_id === s.id)
+        const dist = distributionFor(assignments, expected, classNames, cls.id, date, s.half_day)
+        // Classe entièrement répartie : « Répartie » avec sa couverture, plutôt qu'« appel absent » (§7.3).
+        const fullyDistributed = !call && !!dist.distribution && dist.remaining === 0 && dist.hostedCount === 0
         return {
           classId: cls.id,
           className: cls.name,
@@ -181,8 +265,10 @@ export async function getDashboard(env: Env, req: Request, schoolId: string) {
           teachers: teachers.filter((t) => t.class_id === cls.id).map((t) => t.display_name),
           slot: { id: s.id, name: s.name, halfDay: s.half_day, dueTime: s.due_time },
           tab: tabs.get(s.id)!,
-          state: callState({ validated: !!call, date, today, nowTime, dueTime: s.due_time }),
-          expected: call ? call.present + call.absent + call.other : expected(cls.id, date, s.half_day),
+          state: fullyDistributed ? ('distributed' as const) : callState({ validated: !!call, date, today, nowTime, dueTime: s.due_time }),
+          expected: call ? call.present + call.absent + call.other : dist.remaining + dist.hostedCount,
+          distribution: dist.distribution,
+          hosted: call ? (call.hosted ? { count: call.hosted, from: dist.hosted?.from ?? [] } : null) : dist.hosted,
           counts: call ? { present: call.present, absent: call.absent, other: call.other } : null,
           validatedAt: call?.first_validated_at ?? null,
           updatedAt: call?.updated_at ?? null,
@@ -207,8 +293,7 @@ export async function getDashboard(env: Env, req: Request, schoolId: string) {
     nowTime,
     serverTime: now,
     closure,
-    // Répartitions temporaires : arrivent au lot 5.
-    activeDistributions: 0,
+    activeDistributions: (plansR.results[0] as { n: number } | undefined)?.n ?? 0,
     rows,
   })
 }
@@ -364,9 +449,11 @@ export async function getHistory(env: Env, req: Request, schoolId: string) {
   const classFilter = p.get('classId') || null
   const userFilter = p.get('userId') || null
   const stateFilter = p.get('state') || null
-  if (stateFilter && !['validated', 'corrected', 'missing'].includes(stateFilter)) throw badRequest('INVALID_STATE', 'État inconnu.')
+  if (stateFilter && !['validated', 'corrected', 'missing', 'distributed'].includes(stateFilter)) throw badRequest('INVALID_STATE', 'État inconnu.')
+  // Filtre « répartition » : appels de classes d'accueil avec élèves accueillis, classes réparties.
+  const distributionFilter = p.get('distribution') === '1'
 
-  const [closuresR, classesR, slotsR, callsR, studentsR, schedulesR, peopleR] = await env.DB.batch([
+  const [closuresR, classesR, slotsR, callsR, studentsR, schedulesR, peopleR, assignR] = await env.DB.batch([
     env.DB.prepare('SELECT start_date, end_date, label FROM school_closures WHERE school_id = ? AND end_date >= ? AND start_date <= ?').bind(
       schoolId,
       from,
@@ -381,7 +468,9 @@ export async function getHistory(env: Env, req: Request, schoolId: string) {
     env.DB.prepare(
       `SELECT DISTINCT u.id, u.display_name FROM memberships m JOIN users u ON u.id = m.user_id WHERE m.school_id = ? ORDER BY u.display_name`,
     ).bind(schoolId),
+    assignmentsQuery(env, schoolId, from, to),
   ])
+  const assignments = assignR.results as AssignmentLite[]
   const closures = closuresR.results as { start_date: string; end_date: string; label: string }[]
   const classes = new Map(
     (classesR.results as (ClassRow & { archived_at: string | null })[]).map((c) => [c.id, { ...c, levelList: JSON.parse(c.levels) as string[] }]),
@@ -390,14 +479,21 @@ export async function getHistory(env: Env, req: Request, schoolId: string) {
   const slotById = new Map(slots.map((s) => [s.id, s]))
   const calls = callsR.results as CallCountRow[]
   const expected = expectedCounter(studentsR.results as StudentLite[], schedulesR.results as ScheduleLite[])
+  const classNames = new Map(
+    [...classes.values()]
+      .sort((x, y) => levelRank(x.levelList) - levelRank(y.levelList) || x.name.localeCompare(y.name, 'fr', { numeric: true }))
+      .map((c) => [c.id, c.name]),
+  )
 
   type Row = {
     date: string
     classId: string
     className: string
     slot: { id: string; name: string; halfDay: HalfDay }
-    state: 'validated' | 'corrected' | 'missing'
+    state: 'validated' | 'corrected' | 'missing' | 'distributed'
     version: number | null
+    hosted: { count: number; from: string[] } | null
+    distribution: { total: number; confirmed: number; hosts: { className: string; total: number; confirmed: number }[] } | null
     validatedAt: string | null
     updatedAt: string | null
     by: string | null
@@ -411,7 +507,10 @@ export async function getHistory(env: Env, req: Request, schoolId: string) {
     const slot = slotById.get(c.slot_id)
     if (!cls || !slot) continue
     if (userFilter && !(c.actors ?? '').split(',').includes(userFilter) && c.first_by !== userFilter) continue
+    const dist = distributionFor(assignments, expected, classNames, cls.id, c.slot_date, slot.half_day)
     rows.push({
+      hosted: c.hosted ? { count: c.hosted, from: dist.hosted?.from ?? [] } : null,
+      distribution: dist.distribution,
       date: c.slot_date,
       classId: cls.id,
       className: cls.name,
@@ -438,27 +537,37 @@ export async function getHistory(env: Env, req: Request, schoolId: string) {
         if (!(s.weekdays & bit) || done.has(`${d}:${s.id}`)) continue
         if (s.created_at.slice(0, 10) > d || (s.archived_at && s.archived_at.slice(0, 10) <= d)) continue
         if (cls.created_at.slice(0, 10) > d || (cls.archived_at && cls.archived_at.slice(0, 10) <= d)) continue
-        const n = expected(cls.id, d, s.half_day)
-        if (n === 0) continue
+        const dist = distributionFor(assignments, expected, classNames, cls.id, d, s.half_day)
+        const n = dist.remaining + dist.hostedCount
+        // Classe entièrement répartie : pas « non fait », mais « Répartie » avec sa couverture.
+        const isDistributed = n === 0 && !!dist.distribution
+        if (n === 0 && !isDistributed) continue
         rows.push({
+          hosted: dist.hosted,
+          distribution: dist.distribution,
           date: d,
           classId: cls.id,
           className: cls.name,
           levels: cls.levelList,
           slot: { id: s.id, name: s.name, halfDay: s.half_day },
-          state: 'missing',
+          state: isDistributed ? 'distributed' : 'missing',
           version: null,
           validatedAt: null,
           updatedAt: null,
           by: null,
           counts: null,
-          expected: n,
+          expected: isDistributed ? dist.distribution!.total : n,
         })
       }
     }
   }
   const filtered = rows
-    .filter((r) => (!classFilter || r.classId === classFilter) && (!stateFilter || r.state === stateFilter))
+    .filter(
+      (r) =>
+        (!classFilter || r.classId === classFilter) &&
+        (!stateFilter || r.state === stateFilter) &&
+        (!distributionFilter || r.distribution !== null || r.hosted !== null),
+    )
     .sort(
       (a, b) =>
         b.date.localeCompare(a.date) ||
