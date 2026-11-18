@@ -14,7 +14,8 @@ Appely tient dans **un seul Worker Cloudflare** (offre gratuite) : il sert l’a
 ## 2. Base de données D1
 
 1. Tableau de bord Cloudflare → **Stockage et bases de données → D1** → **Créer une base** nommée `appely-db`.
-   Choisir si possible la **juridiction Union européenne** (localisation des données).
+   Choisir la **juridiction Union européenne** (`npx wrangler d1 create appely-db --jurisdiction=eu`) : elle ne peut
+   **pas** être ajoutée après la création. Obligatoire avant toute donnée réelle (voir `docs/rgpd/03-sous-traitants-hebergement.md`).
 2. Copier son identifiant dans `wrangler.jsonc` (`d1_databases[0].database_id`). Ce n’est pas un secret.
 3. Les tables n’ont **pas** besoin d’être créées à la main : au premier appel d’API, le Worker applique les migrations
    versionnées (`worker/migrations/000N_*.ts`, liste dans `worker/lib/migrate.ts`), chacune en une transaction.
@@ -77,7 +78,8 @@ Parcours complets P1 à P12 (navigateur automatisé, base jetable) : `npm run e2
 
 ## 8. Sauvegarde et restauration
 
-- D1 garde un historique (« Time Travel ») de 30 jours : restauration à un instant donné depuis le tableau de bord
+- D1 garde un historique (« Time Travel ») de 7 jours en offre gratuite (30 jours en offre payante, à vérifier dans la
+  documentation Cloudflare) : restauration à un instant donné depuis le tableau de bord
   ou `npx wrangler d1 time-travel restore appely-db --timestamp=<date>`.
 - Export complet : `npx wrangler d1 export appely-db --remote --output=sauvegarde.sql` (à chiffrer et stocker
   hors du dépôt). Restauration testée en local : `npx wrangler d1 execute appely-db --local --file=sauvegarde.sql`.
@@ -87,3 +89,4 @@ Parcours complets P1 à P12 (navigateur automatisé, base jetable) : `npm run e2
 
 Voir `README.md` (« Limitations connues ») et `docs/AVANCEMENT.md` (Definition of Done) : validation du responsable
 de traitement et du DPD, durée de conservation, localisation UE des données, politique de confidentialité.
+Le dossier complet et la liste des décisions à prendre sont dans [`docs/rgpd/`](rgpd/README.md).

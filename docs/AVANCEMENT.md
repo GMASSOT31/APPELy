@@ -10,6 +10,7 @@
 | 5 / Répartitions | Algorithme, édition, affectations, synchronisation | **Fait** (voir ci-dessous) |
 | 6 / Finalisation | Exports, PWA, audit sécurité, a11y | **Fait** (voir ci-dessous) |
 | 7 / Pilote | Scénarios E2E, docs, déploiement de test | **Fait** (voir ci-dessous) |
+| Dossier RGPD | Dossier de validation pour responsable de traitement, DPD, DASEN ; page « Confidentialité » | **Fait** (projet à valider, voir ci-dessous) |
 
 ## Lot 0 — vérifié
 
@@ -282,6 +283,39 @@ d’appel à ouvrir (`src/domain/domain.test.ts`), soit **160 tests** ; parcours
 - E2E : script Playwright autonome (pas de lanceur de tests supplémentaire) ; l’appel de Marc porte sur la demi-journée
   en cours et la répartition sur l’autre, pour rejouer le scénario à toute heure (pas le dimanche).
 
+## Dossier de validation RGPD / institutionnelle — rédigé (à valider)
+
+Dossier `docs/rgpd/` (11 fichiers, Markdown) établi **d’après le code réel** (migrations 0001 à 0006, routes, stockage
+sur l’appareil) : registre des traitements (finalités, mission d’intérêt public, personnes, données, destinataires,
+durées proposées), inventaire table par table, sous-traitants et hébergement (Cloudflare : DPA, juridiction UE de D1
+choisie seulement à la création, Cloud Act, pas de SecNumCloud — signalés honnêtement), mesures de sécurité en place
+et leurs limites, droits des personnes et procédure, procédure d’incident (72 h), réversibilité (export puis purge),
+pré-AIPD (12 risques), notes d’information familles / personnels, et **liste de 21 décisions** du responsable de
+traitement avec valeurs par défaut prudentes (`10-decisions-responsable.md`). Aucune conformité n’est affirmée ;
+les points juridiques incertains sont marqués « ⚖️ À valider par le DPD ».
+
+- **Page « Confidentialité »** (`/confidentialite`, sans connexion) : ce qui est enregistré, qui voit quoi, ce qui
+  reste sur l’appareil, hébergement, droits ; bandeau « pas encore validé ». Lien « Confidentialité » en bas de
+  l’accueil, de la connexion / invitation et de tous les écrans à en-tête. Tests : `src/pages/Privacy.test.tsx`
+  (2 tests, soit **162 tests**) ; ajoutée au parcours P12 (320/360/768/1280 px, axe-core sans violation, zones ≥ 44 px) :
+  `npm run e2e` **75/75**.
+- Constats faits en rédigeant (non corrigés, décisions attendues) : les tentatives de connexion échouées gardent
+  l’adresse IP sans limite de durée ; sessions expirées et invitations jamais effacées ; journaux d’exécution
+  Cloudflare activés ; aucune purge automatique ; pas d’export complet ni de purge d’une vraie école dans l’application.
+- Correction : `docs/DEPLOIEMENT.md` indiquait 30 jours de « Time Travel » D1 ; c’est 7 jours en offre gratuite
+  (30 en payante, à revérifier). Commande `--jurisdiction=eu` documentée.
+- E2E : le contrôle « Démonstration » attendait « CE1 A » sur le tableau de bord, absent l’après-midi (seule PS-MS a un
+  appel l’après-midi) → attend désormais CM1-CM2 ou PS-MS (test indépendant de l’heure).
+
+### Choix faits en autonomie (dossier RGPD)
+
+- Dossier en Markdown dans le dépôt (versionné avec le code qu’il décrit) plutôt qu’un document externe.
+- Responsable de traitement présenté comme l’autorité académique (IA-DASEN) et non le directeur d’école, conformément
+  au garde-fou du §14 — à confirmer par le DPD.
+- Durées proposées, prudentes : appels = année scolaire + 1 an ; audit = 1 an ; tentatives de connexion = 24 h ;
+  sessions / invitations = 3 mois ; comptes = 1 an après la fin d’accès ; session sur appareil = 7 jours (au lieu de 30).
+- La page « Confidentialité » ne donne ni durée ni localisation tant qu’elles ne sont pas décidées (« seront indiquées ici »).
+
 ## Definition of Done (§18) — vérification point par point
 
 | Point | État | Preuve |
@@ -294,7 +328,7 @@ d’appel à ouvrir (`src/domain/domain.test.ts`), soit **160 tests** ; parcours
 | Erreurs réseau, modifications et appels hors ligne sans perte ni doublon | ✅ | E2E P10, tests d’idempotence (`calls.test.ts`), persistance après redémarrage |
 | Planche graphique respectée, lisibilité et accessibilité prioritaires | ✅ | Captures 320 → 1280 px, axe-core WCAG 2.1 AA sans violation ; couleurs assombries pour le contraste (écart assumé) |
 | Repo : README, schéma, migrations, tests, données fictives, guide utilisateur, guide de déploiement | ✅ | `README.md`, `docs/SCHEMA.md`, `worker/migrations/`, `tests/`, `e2e/`, `worker/lib/demo.ts`, `docs/GUIDE-UTILISATEUR.md`, `docs/DEPLOIEMENT.md` |
-| Usage réel conditionné à la validation institutionnelle et RGPD, sans exception | ⏳ hors code | Avertissement README + guides ; validation DASEN / DPD à obtenir (voir écarts ouverts) |
+| Usage réel conditionné à la validation institutionnelle et RGPD, sans exception | ⏳ hors code | Avertissement README + guides ; dossier `docs/rgpd/` prêt ; validation DASEN / DPD à obtenir (voir écarts ouverts) |
 
 ## Écarts au cahier des charges (assumés)
 
@@ -313,8 +347,13 @@ d’appel à ouvrir (`src/domain/domain.test.ts`), soit **160 tests** ; parcours
   avec l’offre gratuite Cloudflare ; suffisant pour le suivi du matin.
 - Mode hors ligne nominatif (consulter la liste d’élèves sans réseau) : volontairement désactivé, voir lot 6 et README.
 - Notifications push : non faites (facultatives au §10) ; notifications internes seulement.
-- Politique de conservation et purge des archives (§9) : à définir avec le responsable de traitement avant usage réel.
-- Localisation des données D1 : à vérifier dans le tableau de bord Cloudflare (juridiction UE souhaitée).
+- Politique de conservation et purge des archives (§9) : durées proposées (`docs/rgpd/10-decisions-responsable.md`),
+  purge automatique à coder une fois les durées validées (inclut la purge des tentatives de connexion avec IP).
+- Localisation des données D1 : la juridiction UE ne se choisit qu’à la création → recréer la base avec
+  `--jurisdiction=eu` avant toute donnée réelle ; journaux d’exécution Cloudflare à désactiver ou réduire.
+- Réversibilité : export complet par école et purge d’une vraie école seulement par procédure manuelle
+  (`docs/rgpd/07-reversibilite.md`).
 - Lecteurs d’écran réels (VoiceOver, TalkBack, NVDA) et tests avec de vrais utilisateurs : à faire pendant le pilote.
-- Validation RGPD / institutionnelle (responsable de traitement, DPD académique, DASEN), politique de confidentialité
-  et registre de traitement : préalable obligatoire à toute école réelle.
+- Validation RGPD / institutionnelle (responsable de traitement, DPD académique, DASEN) : dossier prêt (`docs/rgpd/`),
+  à présenter ; AIPD à conduire avec le DPD ; convention de sous-traitance à signer. Préalable obligatoire à toute
+  école réelle.

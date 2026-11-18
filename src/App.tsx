@@ -22,6 +22,7 @@ import Absences from './pages/Absences'
 import HistoryPage from './pages/History'
 import HistoryPrint from './pages/HistoryPrint'
 import Distributions from './pages/Distributions'
+import Privacy from './pages/Privacy'
 import DistributionEditor from './pages/DistributionEditor'
 import DistributionDetail from './pages/DistributionDetail'
 
@@ -52,6 +53,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/connexion" element={<GuestOnly><Login /></GuestOnly>} />
+          <Route path="/confidentialite" element={<Privacy />} />
           <Route path="/installation" element={<Setup />} />
           <Route path="/invitation/:token" element={<Invitation />} />
           <Route path="/admin" element={<Protected><Admin /></Protected>} />

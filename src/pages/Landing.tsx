@@ -1,6 +1,7 @@
 import { BarChart3, MessageSquare, Shuffle, Users } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Logo } from '../components/Logo'
+import { PrivacyFooter } from '../components/Shell'
 import { CallDemo } from '../demo/CallDemo'
 
 const features = [
@@ -60,6 +61,7 @@ export default function Landing() {
 
         <CallDemo />
       </main>
+      <PrivacyFooter />
     </div>
   )
 }

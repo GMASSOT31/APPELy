@@ -55,7 +55,10 @@ menu du navigateur). Sur ordinateur : icône d’installation dans la barre d’
 ## Limitations connues
 
 - **Version de démonstration** : aucune donnée réelle d’élève tant que les validations RGPD et institutionnelles
-  (responsable de traitement, DPD académique) ne sont pas obtenues.
+  (responsable de traitement, DPD académique) ne sont pas obtenues. Le dossier à leur présenter est prêt dans
+  [`docs/rgpd/`](docs/rgpd/README.md) (registre, inventaire des données, hébergement, sécurité, droits, incident,
+  réversibilité, pré-AIPD, notes d’information, décisions à prendre) ; il n’affirme aucune conformité non validée.
+  Une page « Confidentialité » (`/confidentialite`) est accessible depuis tous les écrans.
 - **Hors ligne** : l’application a besoin du réseau pour ouvrir un appel. Le mode hors ligne nominatif (liste d’élèves
   gardée sur l’appareil) est **désactivé** : sur des tablettes partagées, ce stockage n’est pas validé (cahier des charges §10).
   Seul un appel déjà ouvert peut être terminé sans réseau : il reste « Enregistré sur cet appareil, non transmis » et part
@@ -65,9 +68,14 @@ menu du navigateur). Sur ordinateur : icône d’installation dans la barre d’
 - **E-mails** : aucun envoi d’e-mail ; les invitations et réinitialisations passent par un lien à transmettre soi-même,
   pas de « mot de passe oublié » en libre-service.
 - **Notifications** : internes à l’application uniquement (pas de notifications push).
-- **Conservation des données** : pas encore de purge automatique des anciens appels ni du journal d’audit ; la durée de
-  conservation doit être fixée par le responsable de traitement.
-- **Hébergement** : Cloudflare (Workers + D1) ; la localisation UE des données est à vérifier/configurer dans Cloudflare.
+- **Conservation des données** : pas encore de purge automatique (appels, comptes, journal d’audit, sessions, tentatives
+  de connexion avec adresse IP) ; durées proposées dans `docs/rgpd/10-decisions-responsable.md`, à fixer par le
+  responsable de traitement.
+- **Réversibilité** : pas d’export complet par école ni de suppression d’une vraie école dans l’application ; procédure
+  manuelle décrite dans `docs/rgpd/07-reversibilite.md`.
+- **Hébergement** : Cloudflare (Workers + D1), société américaine. La juridiction UE d’une base D1 ne se choisit qu’à sa
+  création : la base actuelle (démonstration) n’est pas garantie en UE ; une nouvelle base `--jurisdiction=eu` est
+  prévue avant toute donnée réelle (voir `docs/rgpd/03-sous-traitants-hebergement.md`).
 - **Accessibilité** : audit automatique WCAG 2.1 AA (axe-core) et parcours clavier vérifiés ; un audit RGAA complet avec
   lecteurs d’écran réels (VoiceOver, NVDA, TalkBack) reste à faire avec des utilisateurs.
 - **École de démonstration** : ses comptes partagent un mot de passe commun (comptes fictifs uniquement) ; elle est

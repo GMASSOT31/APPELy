@@ -571,6 +571,7 @@ async function p12() {
     ['equipe', `/ecole/${A}/equipe`],
     ['parametres', `/ecole/${A}/parametres`],
     ['import', `/ecole/${A}/import`],
+    ['confidentialite', '/confidentialite'],
     ['appel', callUrl(S.classes['CE2 A'].id, S.classes['CE2 A'].slots[DIST_HALF]).replace(server.url, '')],
   ]
   const widths = [320, 360, 768, 1280]
@@ -668,7 +669,8 @@ async function demo() {
   await d.page.getByLabel('Mot de passe').fill(pwd)
   await d.page.getByRole('button', { name: 'Se connecter' }).click()
   await d.page.waitForURL(/\/ecole\//)
-  await d.page.getByText('CE1 A').first().waitFor()
+  // L’après-midi, seules les classes ayant un appel l’après-midi (PS-MS) sont affichées : attendre l’une ou l’autre.
+  await d.page.getByText(/CM1-CM2|PS-MS/).first().waitFor()
   R.check('la direction de démonstration arrive sur un tableau de bord rempli', (await d.page.getByText(/CM1-CM2|PS-MS/).count()) > 0)
   await shot(d.page, 'demo-direction-tableau-de-bord-1280')
   await d.ctx.close()

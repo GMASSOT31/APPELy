@@ -37,6 +37,7 @@ export function Shell({ title, subtitle, children }: { title: string; subtitle?:
         {subtitle && <p className="mt-1 text-muted">{subtitle}</p>}
         <div className="mt-6">{children}</div>
       </main>
+      <PrivacyFooter />
     </div>
   )
 }
@@ -52,7 +53,22 @@ export function AuthLayout({ children }: { children: ReactNode }) {
           </Link>
         </div>
         {children}
+        <PrivacyFooter />
       </div>
     </div>
+  )
+}
+
+/** Lien discret vers la page « Confidentialité », présent sur tous les écrans. */
+export function PrivacyFooter() {
+  return (
+    <footer className="mx-auto flex max-w-5xl justify-center px-4 pb-6 print:hidden">
+      <Link
+        to="/confidentialite"
+        className="inline-flex min-h-11 items-center rounded-xl px-3 text-sm text-muted underline-offset-4 hover:bg-surface hover:text-ink hover:underline"
+      >
+        Confidentialité
+      </Link>
+    </footer>
   )
 }
