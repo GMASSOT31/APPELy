@@ -5,6 +5,36 @@ import { assertSameOrigin, getMe, getSetup, postLogin, postLogout, postSetup } f
 import { acceptInvitation, getInvitation } from './routes/invitations'
 import { createSchool, listSchools, reinviteDirection, setSchoolStatus } from './routes/admin'
 import { inviteMember, listMembers, resetMember, revokeInvitation, revokeMember } from './routes/school'
+import {
+  addStudent,
+  archiveClass,
+  archiveSlot,
+  assignTeacher,
+  cancelImport,
+  createClass,
+  createSlot,
+  getClass,
+  getOverview,
+  importStudents,
+  myClasses,
+  setClassSchedule,
+  setSchedule,
+  studentLeaves,
+  unassignTeacher,
+  updateClass,
+  updateSlot,
+  updateStudent,
+} from './routes/classes'
+import {
+  addClosure,
+  archiveStatus,
+  createStatus,
+  deleteClosure,
+  getSettings,
+  moveStatus,
+  setClosedWeekdays,
+  updateStatus,
+} from './routes/settings'
 
 type Handler = (env: Env, req: Request, params: string[], origin: string) => Promise<Response>
 
@@ -28,6 +58,33 @@ const routes: [string, RegExp, Handler][] = [
   ['POST', new RegExp(`^/api/schools/${ID}/invitations/${ID}/revoke$`), (env, req, [s, i]) => revokeInvitation(env, req, s, i)],
   ['POST', new RegExp(`^/api/schools/${ID}/members/${ID}/revoke$`), (env, req, [s, m]) => revokeMember(env, req, s, m)],
   ['POST', new RegExp(`^/api/schools/${ID}/members/${ID}/reset$`), (env, req, [s, m], o) => resetMember(env, req, s, m, o)],
+  // Lot 2 : classes, élèves, créneaux, réglages, import
+  ['GET', new RegExp(`^/api/schools/${ID}/overview$`), (env, req, [s]) => getOverview(env, req, s)],
+  ['GET', new RegExp(`^/api/schools/${ID}/my-classes$`), (env, req, [s]) => myClasses(env, req, s)],
+  ['POST', new RegExp(`^/api/schools/${ID}/classes$`), (env, req, [s]) => createClass(env, req, s)],
+  ['GET', new RegExp(`^/api/schools/${ID}/classes/${ID}$`), (env, req, [s, c]) => getClass(env, req, s, c)],
+  ['POST', new RegExp(`^/api/schools/${ID}/classes/${ID}$`), (env, req, [s, c]) => updateClass(env, req, s, c)],
+  ['POST', new RegExp(`^/api/schools/${ID}/classes/${ID}/archive$`), (env, req, [s, c]) => archiveClass(env, req, s, c)],
+  ['POST', new RegExp(`^/api/schools/${ID}/classes/${ID}/teachers$`), (env, req, [s, c]) => assignTeacher(env, req, s, c)],
+  ['POST', new RegExp(`^/api/schools/${ID}/classes/${ID}/teachers/${ID}/remove$`), (env, req, [s, c, a]) => unassignTeacher(env, req, s, c, a)],
+  ['POST', new RegExp(`^/api/schools/${ID}/classes/${ID}/students$`), (env, req, [s, c]) => addStudent(env, req, s, c)],
+  ['POST', new RegExp(`^/api/schools/${ID}/classes/${ID}/schedule$`), (env, req, [s, c]) => setClassSchedule(env, req, s, c)],
+  ['POST', new RegExp(`^/api/schools/${ID}/classes/${ID}/slots$`), (env, req, [s, c]) => createSlot(env, req, s, c)],
+  ['POST', new RegExp(`^/api/schools/${ID}/classes/${ID}/slots/${ID}$`), (env, req, [s, c, sl]) => updateSlot(env, req, s, c, sl)],
+  ['POST', new RegExp(`^/api/schools/${ID}/classes/${ID}/slots/${ID}/archive$`), (env, req, [s, c, sl]) => archiveSlot(env, req, s, c, sl)],
+  ['POST', new RegExp(`^/api/schools/${ID}/students/${ID}$`), (env, req, [s, st]) => updateStudent(env, req, s, st)],
+  ['POST', new RegExp(`^/api/schools/${ID}/students/${ID}/leave$`), (env, req, [s, st]) => studentLeaves(env, req, s, st)],
+  ['POST', new RegExp(`^/api/schools/${ID}/students/${ID}/schedule$`), (env, req, [s, st]) => setSchedule(env, req, s, st)],
+  ['POST', new RegExp(`^/api/schools/${ID}/imports$`), (env, req, [s]) => importStudents(env, req, s)],
+  ['POST', new RegExp(`^/api/schools/${ID}/imports/${ID}/cancel$`), (env, req, [s, i]) => cancelImport(env, req, s, i)],
+  ['GET', new RegExp(`^/api/schools/${ID}/settings$`), (env, req, [s]) => getSettings(env, req, s)],
+  ['POST', new RegExp(`^/api/schools/${ID}/settings/weekdays$`), (env, req, [s]) => setClosedWeekdays(env, req, s)],
+  ['POST', new RegExp(`^/api/schools/${ID}/closures$`), (env, req, [s]) => addClosure(env, req, s)],
+  ['POST', new RegExp(`^/api/schools/${ID}/closures/${ID}/delete$`), (env, req, [s, c]) => deleteClosure(env, req, s, c)],
+  ['POST', new RegExp(`^/api/schools/${ID}/statuses$`), (env, req, [s]) => createStatus(env, req, s)],
+  ['POST', new RegExp(`^/api/schools/${ID}/statuses/${ID}$`), (env, req, [s, st]) => updateStatus(env, req, s, st)],
+  ['POST', new RegExp(`^/api/schools/${ID}/statuses/${ID}/move$`), (env, req, [s, st]) => moveStatus(env, req, s, st)],
+  ['POST', new RegExp(`^/api/schools/${ID}/statuses/${ID}/archive$`), (env, req, [s, st]) => archiveStatus(env, req, s, st)],
 ]
 
 export async function handleApi(req: Request, env: Env): Promise<Response> {

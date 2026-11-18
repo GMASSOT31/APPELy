@@ -1,4 +1,4 @@
-import { useId, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from 'react'
+import { useId, useState, type ButtonHTMLAttributes, type ComponentProps, type ReactNode } from 'react'
 import { AlertCircle, Check, CheckCircle2, Copy, Loader2 } from 'lucide-react'
 
 type Variant = 'primary' | 'secondary' | 'danger' | 'ghost'
@@ -35,7 +35,7 @@ export function Field({
   hint,
   error,
   ...input
-}: InputHTMLAttributes<HTMLInputElement> & { label: string; hint?: string; error?: string }) {
+}: ComponentProps<'input'> & { label: string; hint?: string; error?: string }) {
   const id = useId()
   return (
     <div className="grid gap-1.5">
@@ -58,8 +58,12 @@ export function Field({
   )
 }
 
-export function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return <div className={`rounded-[var(--radius-card)] bg-white p-5 shadow-[var(--shadow-card)] ${className}`}>{children}</div>
+export function Card({ children, className = '', flush }: { children: ReactNode; className?: string; flush?: boolean }) {
+  return (
+    <div className={`rounded-[var(--radius-card)] bg-white shadow-[var(--shadow-card)] ${flush ? 'overflow-hidden' : 'p-5'} ${className}`}>
+      {children}
+    </div>
+  )
 }
 
 export function ErrorBox({ children }: { children: ReactNode }) {

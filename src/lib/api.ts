@@ -43,5 +43,7 @@ export const ROLE_LABELS: Record<Role, string> = {
 
 export function formatDate(iso: string | null) {
   if (!iso) return ''
-  return new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
+  // Une date seule (AAAA-MM-JJ) est un jour du calendrier : on évite tout décalage de fuseau.
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(iso) ? new Date(`${iso}T12:00:00`) : new Date(iso)
+  return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
 }

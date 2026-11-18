@@ -8,6 +8,10 @@ import Landing from './pages/Landing'
 import Login from './pages/Login'
 import NoAccess from './pages/NoAccess'
 import SchoolTeam from './pages/SchoolTeam'
+import SchoolClasses from './pages/SchoolClasses'
+import ClassPage from './pages/ClassPage'
+import ImportStudents from './pages/ImportStudents'
+import SchoolSettings from './pages/SchoolSettings'
 import Setup from './pages/Setup'
 import Teacher from './pages/Teacher'
 
@@ -39,7 +43,11 @@ export default function App() {
           <Route path="/installation" element={<Setup />} />
           <Route path="/invitation/:token" element={<Invitation />} />
           <Route path="/admin" element={<Protected><Admin /></Protected>} />
-          <Route path="/ecole/:schoolId" element={<Protected><SchoolTeam /></Protected>} />
+          <Route path="/ecole/:schoolId" element={<Protected><SchoolClasses /></Protected>} />
+          <Route path="/ecole/:schoolId/equipe" element={<Protected><SchoolTeam /></Protected>} />
+          <Route path="/ecole/:schoolId/parametres" element={<Protected><SchoolSettings /></Protected>} />
+          <Route path="/ecole/:schoolId/import" element={<Protected><ImportStudents /></Protected>} />
+          <Route path="/ecole/:schoolId/classes/:classId" element={<Protected><ClassPage /></Protected>} />
           <Route path="/enseignant" element={<Protected><Teacher /></Protected>} />
           <Route path="/sans-acces" element={<Protected><NoAccess /></Protected>} />
           <Route path="*" element={<Navigate to="/" replace />} />

@@ -4,7 +4,7 @@
 |---|---|---|
 | 0 / Initialisation | Dépôt, conventions, design tokens, CI, déploiement, règles métier pures + tests, plan de schéma | **Fait** (voir ci-dessous) |
 | 1 / Accès + écoles | Admin et Direction : invitations, authentification, rôles, cloisonnement et tests | **Fait** (voir ci-dessous) |
-| 2 / Classes + élèves | Niveaux, jours, créneaux, états, import CSV/XLSX | À faire |
+| 2 / Classes + élèves | Niveaux, jours, créneaux, états, import CSV/XLSX | **Fait** (voir ci-dessous) |
 | 3 / Appel enseignant | Grille, compteurs, validation, persistance, corrections | Règles métier faites, persistance à faire |
 | 4 / Direction | Dashboard temps réel, historique, messages, rappels | À faire |
 | 5 / Répartitions | Algorithme, édition, affectations, synchronisation | Algorithme fait et testé, reste à faire |
@@ -37,6 +37,30 @@ Tests d'intégration (`tests/api.test.ts`, 19 tests sur une vraie base D1 locale
 - Cloisonnement : la direction d'une école ne lit ni ne modifie jamais une autre école (tests négatifs).
 - Journal d'audit des actions sensibles.
 
+## Lot 2 — vérifié
+
+Tests : `tests/classes.test.ts` (14 tests API sur D1 locale), `src/domain/lot2.test.ts` (12 tests de règles),
+plus un parcours navigateur complet (création de classe, élèves, emploi du temps, import CSV de 25 élèves,
+états, fermetures, affectation d'un enseignant, affichage mobile 360 px).
+
+- Classes : création, renommage, niveaux simples ou doubles (TPS à CM2), archivage (refusé si la classe a
+  encore des élèves), regroupement par niveau côté Direction.
+- Enseignants affectés aux classes (enseignant, remplaçant ou direction chargée de classe) ; l'enseignant
+  voit ses classes, en lecture seule.
+- Élèves : ajout rapide à la chaîne, doublons refusés (accents et casse ignorés), modification, changement de
+  classe (journalisé), départ daté (l'élève reste dans l'historique).
+- Présence attendue : « Même liste tous les jours » ou grille jours × matin/après-midi, par élève ou pour toute
+  la classe, avec date d'effet — l'historique n'est jamais réécrit.
+- Appels : par classe, un appel du matin par défaut (lun, mar, jeu, ven, avant 9 h), ajout d'appels
+  l'après-midi, jours et heure limite au choix.
+- Jours sans classe (mercredi, samedi, dimanche par défaut) et périodes de fermeture (vacances, fériés).
+- États d'appel personnalisés : Présent / Absent par défaut, jusqu'à 6 états, chacun relié à Présent / Absent /
+  Autre, ordre modifiable (= cycle des taps), archivage au lieu de suppression, au moins un Présent et un Absent.
+- Import CSV / Excel (.xlsx) : le fichier est lu sur l'appareil, colonnes détectées automatiquement et
+  modifiables, prévisualisation (à importer / doublons / erreurs), classes manquantes créées avec leur niveau,
+  revérification serveur, import atomique, bouton « Annuler l'import ».
+- Cloisonnement : tests négatifs sur chaque nouvel objet (classe, élève, état, enseignant d'une autre école).
+
 ## Écarts au cahier des charges (assumés)
 
 - **Cloudflare D1 au lieu de Supabase** (quota de projets Supabase atteint). D1 n'a pas de RLS : le
@@ -50,5 +74,6 @@ Tests d'intégration (`tests/api.test.ts`, 19 tests sur une vraie base D1 locale
 
 ## Écarts ouverts
 
-- Pas encore de classes, d'élèves ni d'appel enregistré (lots 2 et 3). La démo de la page d'accueil n'enregistre rien.
+- Pas encore d'appel enregistré (lot 3). La démo de la page d'accueil n'enregistre rien.
+- « Annuler l'import » ne sera plus possible une fois des appels enregistrés pour ces élèves (règle à appliquer au lot 3).
 - Localisation des données D1 : à vérifier dans le tableau de bord Cloudflare (juridiction UE souhaitée).

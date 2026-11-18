@@ -1,4 +1,5 @@
 import m0001 from '../migrations/0001_acces_ecoles'
+import m0002 from '../migrations/0002_classes_eleves'
 
 /**
  * Migrations versionnées, appliquées au premier appel d'API de chaque instance.
@@ -6,7 +7,10 @@ import m0001 from '../migrations/0001_acces_ecoles'
  * Chaque migration est appliquée dans un seul lot transactionnel D1, avec son
  * enregistrement dans `schema_migrations` : elle passe entièrement ou pas du tout.
  */
-export const MIGRATIONS: { id: string; sql: string }[] = [{ id: '0001_acces_ecoles', sql: m0001 }]
+export const MIGRATIONS: { id: string; sql: string }[] = [
+  { id: '0001_acces_ecoles', sql: m0001 },
+  { id: '0002_classes_eleves', sql: m0002 },
+]
 
 /** Découpe un script SQL en instructions (pas de « ; » dans nos chaînes ni nos triggers). */
 export function splitStatements(sql: string): string[] {

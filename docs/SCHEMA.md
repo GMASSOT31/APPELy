@@ -1,6 +1,6 @@
 # Plan du modèle de données (Cloudflare D1 / SQLite)
 
-Tables du lot 1 implémentées dans `worker/migrations/0001_acces_ecoles.ts` : schools, users, memberships, invitations, sessions, login_attempts, audit_events. Les autres arrivent avec leurs lots.
+Implémenté : lot 1 (`worker/migrations/0001_acces_ecoles.ts` : schools, users, memberships, invitations, sessions, login_attempts, audit_events) et lot 2 (`0002_classes_eleves.ts` : school_closures, classes, teacher_class_assignments, students, student_schedules, call_slots, attendance_statuses, import_jobs). Les tables d'appel et de répartition arrivent avec les lots 3 et 5.
 
 Repris du cahier des charges §13, avec les contraintes à garantir côté base.
 

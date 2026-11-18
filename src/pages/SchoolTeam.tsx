@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Navigate, useParams } from 'react-router-dom'
 import { UserPlus } from 'lucide-react'
 import { Shell } from '../components/Shell'
+import { SchoolNav } from '../components/SchoolNav'
 import { Badge, Button, Card, CopyLink, ErrorBox, Field, Spinner, SuccessBox } from '../components/ui'
 import { api, ApiError, formatDate, ROLE_LABELS, type Role } from '../lib/api'
 import { useSession } from '../lib/session'
@@ -54,7 +55,8 @@ export default function SchoolTeam() {
   }
 
   return (
-    <Shell title="Équipe" subtitle={membership?.schoolName}>
+    <Shell title={membership?.schoolName ?? 'Équipe'}>
+      <SchoolNav schoolId={schoolId} />
       <div className="mb-4 flex justify-end">
         {!showForm && (
           <Button onClick={() => setShowForm(true)}>
@@ -91,7 +93,7 @@ export default function SchoolTeam() {
         <div className="grid grid-cols-[minmax(0,1fr)] gap-6">
           <section>
             <h2 className="mb-2 text-sm font-semibold tracking-wide text-muted uppercase">Comptes actifs</h2>
-            <Card className="p-0">
+            <Card flush>
               <ul className="divide-y divide-line">
                 {data.members.map((m) => (
                   <li key={m.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
@@ -139,7 +141,7 @@ export default function SchoolTeam() {
           {data.invitations.length > 0 && (
             <section>
               <h2 className="mb-2 text-sm font-semibold tracking-wide text-muted uppercase">Invitations en attente</h2>
-              <Card className="p-0">
+              <Card flush>
                 <ul className="divide-y divide-line">
                   {data.invitations.map((i) => (
                     <li key={i.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
