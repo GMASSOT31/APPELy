@@ -316,6 +316,16 @@ les points juridiques incertains sont marqués « ⚖️ À valider par le DPD �
   sessions / invitations = 3 mois ; comptes = 1 an après la fin d’accès ; session sur appareil = 7 jours (au lieu de 30).
 - La page « Confidentialité » ne donne ni durée ni localisation tant qu’elles ne sont pas décidées (« seront indiquées ici »).
 
+## Interface affichée en haut de l’écran — fait (demande de l’utilisateur)
+
+- Étiquette à côté du logo sur tous les écrans connectés : **ADMIN** (bleu nuit), **DIRECTION** (bleu) ou
+  **ENSEIGNANT** (vert), déduite de la page ouverte (`src/lib/space.ts`). L’écran d’appel affiche « Direction » quand
+  c’est la direction de l’école qui l’ouvre ; le remplaçant voit « Enseignant » (pas une 4e interface, §3).
+- Sur téléphone (< 640 px), « Se déconnecter » devient une icône seule (nom conservé pour les lecteurs d’écran, zone
+  44 px) pour laisser la place à l’étiquette à 320 px.
+- Tests : `src/lib/space.test.ts` (3 tests, soit **165 tests**) ; E2E P12 vérifie les 3 interfaces + remplaçante :
+  **76/76**.
+
 ## Definition of Done (§18) — vérification point par point
 
 | Point | État | Preuve |

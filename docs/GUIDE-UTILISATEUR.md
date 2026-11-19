@@ -5,6 +5,7 @@ Appely sert à faire l’appel en quelques secondes et à savoir, à tout moment
 accès qui s’arrête tout seul à la date prévue.
 
 > Version de démonstration : n’y saisissez **aucune donnée réelle d’élève**.
+> En haut de chaque écran, une étiquette indique où vous êtes : **Admin**, **Direction** ou **Enseignant**.
 > Ce qu’Appely enregistre et vos droits : lien « Confidentialité » en bas des écrans.
 
 ---

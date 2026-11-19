@@ -595,6 +595,26 @@ async function p12() {
   R.check(`aucun défilement horizontal à 320, 360, 768 et 1280 px (${pages.length} écrans)`, overflow.length === 0, overflow.join(', '))
   R.check('axe-core WCAG 2.1 AA : aucune violation (360 et 1280 px)', axeIssues.length === 0, axeIssues.slice(0, 8).join(' | '))
   R.check('zones tactiles ≥ 44 px sur téléphone (360 px)', small.size === 0, [...small].slice(0, 12).map(([t, p]) => `${p}: ${t}`).join(' | '))
+  // Interface indiquée en haut de chaque écran.
+  const spaceOf = async (page, url) => {
+    await page.goto(url)
+    const el = page.getByTestId('space')
+    await el.waitFor()
+    return (await el.innerText()).replace(/interface/i, '').trim().toLowerCase()
+  }
+  const spaces = {
+    admin: await spaceOf(S.admin.page, `${server.url}/admin`),
+    direction: await spaceOf(n.page, `${server.url}/ecole/${A}/historique`),
+    directionAppel: await spaceOf(n.page, callUrl(S.classes['CE2 A'].id, S.classes['CE2 A'].slots[DIST_HALF])),
+    enseignant: await spaceOf(S.marc.page, `${server.url}/enseignant`),
+    remplacant: await spaceOf(S.julie.page, `${server.url}/enseignant`),
+  }
+  R.check(
+    'en haut de l’écran : « Admin », « Direction » (y compris sur un appel ouvert par la direction) ou « Enseignant » (remplaçante comprise)',
+    spaces.admin === 'admin' && spaces.direction === 'direction' && spaces.directionAppel === 'direction' &&
+      spaces.enseignant === 'enseignant' && spaces.remplacant === 'enseignant',
+    JSON.stringify(spaces),
+  )
 
   // Écrans enseignant sur iPhone et Android.
   for (const [label, dev] of [['iPhone 13', devices['iPhone 13']], ['Pixel 7', devices['Pixel 7']], ['iPhone SE', devices['iPhone SE']]]) {

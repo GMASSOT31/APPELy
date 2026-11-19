@@ -1,19 +1,38 @@
 import type { ReactNode } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { LogOut } from 'lucide-react'
 import { Logo } from './Logo'
 import { useSession } from '../lib/session'
+import { SPACE_LABELS, spaceFor, type Space } from '../lib/space'
+
+const SPACE_TONES: Record<Space, string> = {
+  admin: 'bg-night text-white',
+  direction: 'bg-primary text-white',
+  enseignant: 'bg-success-ink text-white',
+}
 
 export function Shell({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
   const { me, logout } = useSession()
   const navigate = useNavigate()
+  const space = spaceFor(useLocation().pathname, me)
   return (
     <div className="min-h-dvh">
       <header className="border-b border-line bg-white print:hidden">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3">
-          <Link to="/" aria-label="Accueil Appely" className="inline-flex min-h-11 items-center">
-            <Logo size={30} />
-          </Link>
+          <div className="flex min-w-0 items-center gap-2">
+            <Link to="/" aria-label="Accueil Appely" className="inline-flex min-h-11 shrink-0 items-center">
+              <Logo size={30} />
+            </Link>
+            {space && (
+              <span
+                data-testid="space"
+                className={`rounded-lg px-2.5 py-1 text-xs font-semibold tracking-wide whitespace-nowrap uppercase ${SPACE_TONES[space]}`}
+              >
+                <span className="sr-only">Interface </span>
+                {SPACE_LABELS[space]}
+              </span>
+            )}
+          </div>
           {me && (
             <div className="flex items-center gap-1">
               <span className="hidden text-sm text-muted sm:inline">{me.user.displayName}</span>
@@ -23,10 +42,12 @@ export function Shell({ title, subtitle, children }: { title: string; subtitle?:
                   await logout()
                   navigate('/connexion')
                 }}
-                className="inline-flex min-h-11 items-center gap-1.5 rounded-xl px-3 text-sm text-muted hover:bg-surface hover:text-ink"
+                title="Se déconnecter"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-xl px-3 text-sm whitespace-nowrap text-muted hover:bg-surface hover:text-ink"
               >
                 <LogOut className="size-4" aria-hidden />
-                Se déconnecter
+                {/* Téléphone : icône seule (le nom reste lu par les lecteurs d'écran). */}
+                <span className="sr-only sm:not-sr-only">Se déconnecter</span>
               </button>
             </div>
           )}
